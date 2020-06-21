@@ -220,20 +220,32 @@
 (defn path->selectors [path]
   (mapv (fn [[tag v]] ((selector-mapping tag) v)) path))
 
-(defn compare-paths [[left-path] [right-path]]
-  (let [mapping {nil 0
-                 ::nil 1
-                 :m-key 2
-                 :set 3
-                 :m-val 4
-                 :index 5}
-        [[l] [r]] (last (into []
-                              (take-while (fn [[[l] [r]]]
-                                            (not= l r)))
-                              (map vector
-                                   (concat left-path (repeat nil))
-                                   (concat right-path (repeat nil)))))]
-    (- (mapping r) (mapping l))))
+(def sort-mapping {nil    0
+                   ::nil  1
+                   :m-key 2
+                   :set   3
+                   :m-val 4
+                   :index 5})
+
+(defn compare-tags [l r]
+  (- (sort-mapping r) (sort-mapping l)))
+
+(defn extract-tags [path]
+  (s/select [s/FIRST s/ALL s/FIRST] path))
+
+(defn tag-seq [path]
+  (concat (extract-tags path) (repeat nil)))
+
+(defn first-different-tags [left-path right-path]
+  (first (sequence (comp (take-while (fn [[l r]] (not= nil l r)))
+                         (remove (fn [[l r]] (= l r))))
+                   (map vector
+                        (tag-seq left-path)
+                        (tag-seq right-path)))))
+
+(defn compare-paths [left-path right-path]
+  (let [[l r] (first-different-tags left-path right-path)]
+    (compare-tags l r)))
 
 (defn diff [{:keys [source fails]}]
   (first

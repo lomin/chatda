@@ -13,7 +13,41 @@
                             (s/select-first (matcher/path->selectors right-path) right-source)])
                          (:fails best-solution))))))
 
-(deftest sort-fails-test
+(deftest sort-paths-test
+
+  (is (= [:index :m-val :set :m-key ::matcher/nil nil]
+         (sort matcher/compare-tags [:m-key nil ::matcher/nil :set :index :m-val])))
+
+  (is (= [:m-key :m-val]
+         (matcher/first-different-tags
+           [[[:m-key #{3}] [:set 3]] [[:set 1]]]
+           [[[:m-val #{3}]] [[:m-val #{1 2}]]])))
+
+  (is (= [:set nil]
+         (matcher/first-different-tags
+           [[[:m-key #{3}] [:set 3]] [[:set 1]]]
+           [[[:m-key #{3}]] [[:m-val #{1 2}]]])))
+
+  (is (= [:set :index]
+         (matcher/first-different-tags
+           [[[:m-key #{3}] [:set 3]] [[:set 1]]]
+           [[[:m-key #{3}] [:index 3]] [[:m-val #{1 2}]]])))
+
+  (is (= nil
+         (matcher/first-different-tags
+           [[[:m-key #{3}] [:index 3]] [[:set 1]]]
+           [[[:m-key #{3}] [:index 3]] [[:m-val #{1 2}]]])))
+
+  (is (= [:m-key nil]
+         (matcher/first-different-tags
+           [[[:m-key #{3}] [:set 3]] [[:set 1]]]
+           [[] [[:m-val #{1 2}]]])))
+
+  (is (= [[[[:m-val #{3}]] [[:m-val #{1 2}]]]
+          [[[:m-key #{3}] [:set 3]] [[:set 1]]]]
+         (sort matcher/compare-paths
+               #{[[[:m-key #{3}] [:set 3]] [[:set 1]]]
+                 [[[:m-val #{3}]] [[:m-val #{1 2}]]]})))
 
   (is (= [[[[:m-val #{3}] [:set 4]] [[:m-val #{1 2}] [:set 3]]]
           [[[:m-key #{3}] [:set 3]] [[:m-key #{1 2}] [:set 1]]]]
