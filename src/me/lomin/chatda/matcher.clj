@@ -17,9 +17,9 @@
              result# (~pred ~expected ~actual)]
          (if (= ~expected result#)
            (clojure-test/do-report {:type     :pass, :message ~msg,
-                       :expected '~form, :actual (cons ~pred values#)})
+                                    :expected '~form, :actual (cons ~pred values#)})
            (clojure-test/do-report {:type     :fail, :message ~msg,
-                       :expected '~form, :actual (list '~'not (list '=* ~expected result#))}))
+                                    :expected '~form, :actual (list '~'not (list '=* ~expected result#))}))
          result#))))
 
 (defmethod kaocha.report/print-expr '=* [m]
@@ -69,9 +69,9 @@
                 [::pop]]]
       (if (and (not= ::nil (first a)) (not= ::nil (first b)))
         (into [[::push [(path-tag :m-val (first a))
-                             (path-tag :m-val (first b))]]
-                    [(second a) (second b)]
-                    [::pop]]
+                        (path-tag :m-val (first b))]]
+               [(second a) (second b)]
+               [::pop]]
               path)
         path))))
 
