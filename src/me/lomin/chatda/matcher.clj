@@ -1,13 +1,10 @@
 (ns me.lomin.chatda.matcher
   (:require [clojure.test :as clojure-test]
             [clojure.data :as data]
-            [lambdaisland.deep-diff.diff :refer [->Mismatch
-                                                 ->Deletion
-                                                 ->Insertion]]
-            [com.rpl.specter :as s]
             [kaocha.report]
             [kaocha.output :as output]
-            [me.lomin.chatda.search :as search]))
+            [me.lomin.chatda.search :as search]
+            [me.lomin.chatda.diff :as diff]))
 
 (defmethod clojure-test/assert-expr '=* [msg form]
   (let [[_ expected actual] form]
@@ -49,7 +46,7 @@
   ([tag elem]
    (path-tag tag elem elem))
   ([tag elem val]
-   (if (= elem ::nil) [::nil ::nil] [tag val])))
+   (if (= elem ::diff/nil) [::diff/nil ::diff/nil] [tag val])))
 
 (extend-type Object Path
   (path [_ _] []))
@@ -67,7 +64,7 @@
                          (path-tag :m-key (first b))]]
                 [(first a) (first b)]
                 [::pop]]]
-      (if (and (not= ::nil (first a)) (not= ::nil (first b)))
+      (if (and (not= ::diff/nil (first a)) (not= ::diff/nil (first b)))
         (into [[::push [(path-tag :m-val (first a))
                         (path-tag :m-val (first b))]]
                [(second a) (second b)]
@@ -81,8 +78,8 @@
 
 (extend-type java.util.List Path
   (path [_ [a b index]]
-    [[::push [(if (= a ::nil) [::nil ::nil] [:index index])
-              (if (= b ::nil) [::nil ::nil] [:index index])]]
+    [[::push [(if (= a ::diff/nil) [::diff/nil ::diff/nil] [:index index])
+              (if (= b ::diff/nil) [::diff/nil ::diff/nil] [:index index])]]
      [a b]
      [::pop]]))
 
@@ -107,7 +104,7 @@
     (for [left left-set
           right (if (<= (count left-set) (count right-set))
                   right-set
-                  (conj right-set ::nil))]
+                  (conj right-set ::diff/nil))]
       (let [left-set* (disj left-set left)]
         (as-> problem $
               (if (seq left-set*)
@@ -124,14 +121,14 @@
     (for [left left-map
           right (if (<= (count left-map) (count right-map))
                   right-map
-                  (conj right-map [::nil ::nil]))]
+                  (conj right-map [::diff/nil ::diff/nil]))]
       (-> problem
           (update :stack conj [(dissoc left-map (first left))
                                (dissoc right-map (first right))])
           (update :stack into (col->path-xf comparison) [[left right]])))))
 
 (def take-until-both-empty-xf
-  (take-while (comp (partial not= [::nil ::nil])
+  (take-while (comp (partial not= [::diff/nil ::diff/nil])
                     (partial take 2))))
 
 (defmethod children #{:sequential}
@@ -142,8 +139,8 @@
                 (comp take-until-both-empty-xf
                       (col->path-xf comparison))
                 (map vector
-                     (concat left-xs (repeat ::nil))
-                     (concat right-xs (repeat ::nil))
+                     (concat left-xs (repeat ::diff/nil))
+                     (concat right-xs (repeat ::diff/nil))
                      (range)))))
 
 (defn success? [problem]
@@ -211,62 +208,8 @@
                               :left-path  []
                               :right-path []}))
 
-(def selector-mapping {::nil  (constantly s/AFTER-ELEM)
-                       :set   #(s/set-elem %)
-                       :m-key #(s/map-key %)
-                       :m-val #(s/keypath %)
-                       :index #(s/nthpath %)})
-
-(defn path->selectors [path]
-  (mapv (fn [[tag v]] ((selector-mapping tag) v)) path))
-
-(def sort-mapping {nil    0
-                   ::nil  1
-                   :m-key 2
-                   :set   3
-                   :m-val 4
-                   :index 5})
-
-(defn compare-tags [l r]
-  (- (sort-mapping r) (sort-mapping l)))
-
-(defn extract-tags [path]
-  (s/select [s/FIRST s/ALL s/FIRST] path))
-
-(defn tag-seq [path]
-  (concat (extract-tags path) (repeat nil)))
-
-(defn first-different-tags [left-path right-path]
-  (first (sequence (comp (take-while (fn [[l r]] (not= nil l r)))
-                         (remove (fn [[l r]] (= l r))))
-                   (map vector
-                        (tag-seq left-path)
-                        (tag-seq right-path)))))
-
-(defn compare-paths [left-path right-path]
-  (let [[l r] (first-different-tags left-path right-path)]
-    (compare-tags l r)))
-
-(defn diff [{:keys [source fails]}]
-  (first
-    (reduce (fn [[left-source right-source] [left-path right-path]]
-              (let [right (s/select-first (path->selectors right-path)
-                                          right-source)]
-                [(s/transform (path->selectors left-path)
-                              (fn [left]
-                                (cond
-                                  (or (nil? left)
-                                      (= left :com.rpl.specter.impl/NONE)) (->Insertion right)
-                                  (or (nil? right)
-                                      (= right :com.rpl.specter.impl/NONE)) (->Deletion left)
-                                  :else (->Mismatch left right)))
-                              left-source)
-                 right-source]))
-            source
-            (sort compare-paths fails))))
-
 (defn =* [a b & args]
   (as-> (subset-problem a b) $
         (apply search/parallel-depth-first-search $ (or (seq args) [10 4]))
         (find-best $ (:best $))
-        (diff $)))
+        (diff/diff $)))

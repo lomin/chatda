@@ -4,64 +4,22 @@
             [me.lomin.chatda.matcher :refer [=*] :as matcher]
             [com.rpl.specter :as s]
             [lambdaisland.deep-diff.diff :refer [->Mismatch ->Deletion ->Insertion] :as diff1]
-            [arrangement.core :refer [rank]]))
+            [arrangement.core :refer [rank]]
+            [me.lomin.chatda.diff :as diff]))
 
 (defn solve [problem]
   (let [{[left-source right-source] :source :as best-solution} (matcher/find-best problem (:best problem))]
     (vec (sort rank (map (fn [[left-path right-path]]
-                           [(s/select-first (matcher/path->selectors left-path) left-source)
-                            (s/select-first (matcher/path->selectors right-path) right-source)])
+                           [(s/select-first (diff/path->selectors left-path) left-source)
+                            (s/select-first (diff/path->selectors right-path) right-source)])
                          (:fails best-solution))))))
-
-(deftest sort-paths-test
-
-  (is (= [:index :m-val :set :m-key ::matcher/nil nil]
-         (sort matcher/compare-tags [:m-key nil ::matcher/nil :set :index :m-val])))
-
-  (is (= [:m-key :m-val]
-         (matcher/first-different-tags
-           [[[:m-key #{3}] [:set 3]] [[:set 1]]]
-           [[[:m-val #{3}]] [[:m-val #{1 2}]]])))
-
-  (is (= [:set nil]
-         (matcher/first-different-tags
-           [[[:m-key #{3}] [:set 3]] [[:set 1]]]
-           [[[:m-key #{3}]] [[:m-val #{1 2}]]])))
-
-  (is (= [:set :index]
-         (matcher/first-different-tags
-           [[[:m-key #{3}] [:set 3]] [[:set 1]]]
-           [[[:m-key #{3}] [:index 3]] [[:m-val #{1 2}]]])))
-
-  (is (= nil
-         (matcher/first-different-tags
-           [[[:m-key #{3}] [:index 3]] [[:set 1]]]
-           [[[:m-key #{3}] [:index 3]] [[:m-val #{1 2}]]])))
-
-  (is (= [:m-key nil]
-         (matcher/first-different-tags
-           [[[:m-key #{3}] [:set 3]] [[:set 1]]]
-           [[] [[:m-val #{1 2}]]])))
-
-  (is (= [[[[:m-val #{3}]] [[:m-val #{1 2}]]]
-          [[[:m-key #{3}] [:set 3]] [[:set 1]]]]
-         (sort matcher/compare-paths
-               #{[[[:m-key #{3}] [:set 3]] [[:set 1]]]
-                 [[[:m-val #{3}]] [[:m-val #{1 2}]]]})))
-
-  (is (= [[[[:m-val #{3}] [:set 4]] [[:m-val #{1 2}] [:set 3]]]
-          [[[:m-key #{3}] [:set 3]] [[:m-key #{1 2}] [:set 1]]]]
-         (sort matcher/compare-paths
-               #{[[[:m-key #{3}] [:set 3]] [[:m-key #{1 2}] [:set 1]]]
-                 [[[:m-val #{3}] [:set 4]] [[:m-val #{1 2}] [:set 3]]]}))))
 
 (deftest solve-test
 
-  (is (= []
-         (-> (matcher/subset-problem #{1}
-                                     #{1})
-             (search/parallel-depth-first-search 2 2)
-             (solve))))
+  (is (= [] (-> (matcher/subset-problem #{1}
+                                        #{1})
+                (search/parallel-depth-first-search 2 2)
+                (solve))))
 
   (is (= []
          (-> (matcher/subset-problem #{1}
@@ -152,6 +110,13 @@
           [4 6]]
          (-> (matcher/subset-problem {#{1} #{2 3 4}}
                                      {#{5} #{2 3 6}})
+             (search/parallel-depth-first-search 10 4)
+             (solve))))
+
+  (is (= [[1 0]
+          [3 4]]
+         (-> (matcher/subset-problem {#{1 #{2 3} 4} 5}
+                                     {#{0 #{2 4} 4} 5})
              (search/parallel-depth-first-search 10 4)
              (solve)))))
 
