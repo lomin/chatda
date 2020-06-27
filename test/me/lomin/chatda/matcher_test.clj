@@ -10,8 +10,8 @@
 (defn solve [problem]
   (let [{[left-source right-source] :source :as best-solution} (matcher/find-best problem (:best problem))]
     (vec (sort rank (map (fn [[left-path right-path]]
-                           [(s/select-first (diff/path->selectors left-path) left-source)
-                            (s/select-first (diff/path->selectors right-path) right-source)])
+                           [(s/select-first (diff/path->navigators left-path) left-source)
+                            (s/select-first (diff/path->navigators right-path) right-source)])
                          (:fails best-solution))))))
 
 (deftest solve-test

@@ -1,6 +1,5 @@
 (ns me.lomin.chatda.diff-test
   (:require [clojure.test :refer :all]
-            [me.lomin.chatda.matcher :as matcher]
             [me.lomin.chatda.diff :as diff]))
 
 (deftest sort-paths-test
@@ -45,15 +44,15 @@
                #{[[[:m-key #{3}] [:set 3]] [[:m-key #{1 2}] [:set 1]]]
                  [[[:m-val #{3}] [:set 4]] [[:m-val #{1 2}] [:set 3]]]}))))
 
-(deftest paths->tree-test
+(deftest grow-path-tree-test
   (is (= [::diff/node [] [[::diff/node [:m-val #{3}] [[::diff/leaf [[:m-val #{1 2}]]]]]]]
-         (diff/path->selector-tree [::diff/node [] []]
-                                   [[[:m-val #{3}]] [[:m-val #{1 2}]]])))
+         (diff/grow-path-tree [::diff/node [] []]
+                              [[[:m-val #{3}]] [[:m-val #{1 2}]]])))
 
   (is (= [::diff/node [] [[::diff/node [:m-val #{3}] [[::diff/leaf [[:m-val #{1 2}]]]]]
-                             [::diff/node [:m-key #{3}] [[::diff/node [:set 3] [[::diff/leaf [[:set 1]]]]]]]]]
-         (diff/path->selector-tree [::diff/node [] [[::diff/node [:m-val #{3}] [[::diff/leaf [[:m-val #{1 2}]]]]]]]
-                                   [[[:m-key #{3}] [:set 3]] [[:set 1]]])))
+                          [::diff/node [:m-key #{3}] [[::diff/node [:set 3] [[::diff/leaf [[:set 1]]]]]]]]]
+         (diff/grow-path-tree [::diff/node [] [[::diff/node [:m-val #{3}] [[::diff/leaf [[:m-val #{1 2}]]]]]]]
+                              [[[:m-key #{3}] [:set 3]] [[:set 1]]])))
 
   (is (= [::diff/node []
           [[::diff/node [:m-val #{3}]
@@ -62,5 +61,5 @@
             [[::diff/node [:set 3]
               [[::diff/node [:test :me]
                 [[::diff/leaf [[:set 1]]]]]]]]]]]
-         (diff/path->selector-tree [::diff/node [] [[::diff/node [:m-val #{3}] [[::diff/leaf [[:m-val #{1 2}]]]]]]]
-                                   [[[:m-key #{3}] [:set 3] [:test :me]] [[:set 1]]]))))
+         (diff/grow-path-tree [::diff/node [] [[::diff/node [:m-val #{3}] [[::diff/leaf [[:m-val #{1 2}]]]]]]]
+                              [[[:m-key #{3}] [:set 3] [:test :me]] [[:set 1]]]))))

@@ -5,25 +5,24 @@
                                                  ->Deletion
                                                  ->Insertion]]))
 
-(def selector-mapping {::nil  (constantly s/AFTER-ELEM)
-                       :set   #(s/set-elem %)
-                       :m-key #(s/map-key %)
-                       :m-val #(s/keypath %)
-                       :index #(s/nthpath %)})
+(def root-node [::node #_node|leaf
+                [#_[tag v]] #_path-segment
+                [] #_children-nodes])
+(def tag-nav (s/nthpath 1))
+(def noop-terminal-nav (s/terminal identity))
+(def children-nav (s/nthpath 2))
+(defn leaf-terminal-nav [right-path]
+  (s/terminal #(conj % [::leaf right-path])))
+(defn node-terminal-nav [path-segment]
+  (s/terminal #(conj % [::node path-segment []])))
 
-(defn step->selector [[tag v]]
-  ((selector-mapping tag) v))
-
-(defn path->selectors [path]
-  (mapv step->selector path))
-
-(def sort-mapping
+(def tag-ranking
   (into {}
         (map-indexed (fn [i k] [k i])
                      [nil ::nil :m-key :set :m-val :index])))
 
 (defn compare-tags [l r]
-  (- (sort-mapping r) (sort-mapping l)))
+  (- (tag-ranking r) (tag-ranking l)))
 
 (defn extract-tags [path]
   (s/select [s/FIRST s/ALL s/FIRST] path))
@@ -39,21 +38,21 @@
                         (tag-seq right-path)))))
 
 (defn compare-paths [left-path right-path]
-  (let [[l r] (first-different-tags left-path right-path)]
-    (compare-tags l r)))
+  (let [[left-tag right-tag] (first-different-tags left-path right-path)]
+    (compare-tags left-tag right-tag)))
 
-(defn upsert-selector [path-segment inner-selector]
-  [(s/nthpath 2)
-   (s/multi-path (s/if-path [s/ALL (s/nthpath 1) (s/pred= path-segment)]
-                            [(s/terminal identity)]
-                            [(s/terminal #(conj % [::node path-segment []]))])
-                 [s/ALL (s/selected? (s/nthpath 1) (s/pred= path-segment)) inner-selector])])
+(defn upsert-navigator [inner-navigator path-segment]
+  [children-nav
+   (s/multi-path (s/if-path [s/ALL tag-nav (s/pred= path-segment)]
+                            noop-terminal-nav
+                            (node-terminal-nav path-segment))
+                 [s/ALL
+                  (s/selected? tag-nav (s/pred= path-segment))
+                  inner-navigator])])
 
-(defn path->selector-tree [tree [left-path right-path]]
-  (s/multi-transform (reduce (fn [selector path-segment]
-                               (upsert-selector path-segment selector))
-                             [(s/nthpath 2)
-                              (s/terminal #(conj % [::leaf right-path]))]
+(defn grow-path-tree [tree [left-path right-path]]
+  (s/multi-transform (reduce upsert-navigator
+                             [children-nav (leaf-terminal-nav right-path)]
                              (reverse left-path))
                      tree))
 
@@ -65,27 +64,39 @@
     (none? right) (->Deletion left)
     :else (->Mismatch left right)))
 
+(def navigator-mapping {::nil  (constantly s/AFTER-ELEM)
+                        :set   #(s/set-elem %)
+                        :m-key #(s/map-key %)
+                        :m-val #(s/keypath %)
+                        :index #(s/nthpath %)})
+
+(defn path-segment->navigator [[tag v]]
+  ((navigator-mapping tag) v))
+
+(defn node-diff-transformer [[_ path-segment children]]
+  (if (seq path-segment)
+    [(path-segment->navigator path-segment) (apply s/multi-path children)]
+    (apply s/multi-path noop-terminal-nav children)))
+
+(defn path->navigators [path]
+  (mapv path-segment->navigator path))
+
+(defn leaf-diff-transformer [[_ right-path] right-source]
+  (s/terminal (partial diff-obj
+                       (s/select-first (path->navigators right-path)
+                                       right-source))))
+
 (defn node-of? [t x] (and (seqable? x) (= (first x) t)))
 
-(defn selector-tree->diff-selector [right-source selector-tree]
-  (walk/postwalk (fn [x]
-                   (cond (node-of? ::node x)
-                         (let [[_ path children] x]
-                           (if (seq path)
-                             [(step->selector path) (apply s/multi-path children)]
-                             (apply s/multi-path (s/terminal identity) children)))
-
-                         (node-of? ::leaf x)
-                         (s/terminal (partial diff-obj
-                                              (s/select-first (path->selectors (second x))
-                                                              right-source)))
-
-                         :else x))
+(defn path-tree->diff-transformer [right-source selector-tree]
+  (walk/postwalk #(cond (node-of? ::node %) (node-diff-transformer %)
+                        (node-of? ::leaf %) (leaf-diff-transformer % right-source)
+                        :else %)
                  selector-tree))
 
-
-(defn diff [{fails :fails [left-source right-source] :source}]
-  (as-> (sort compare-paths fails) $
-        (reduce path->selector-tree [::node [] []] $)
-        (selector-tree->diff-selector right-source $)
+(defn diff [{paths :fails [left-source right-source] :source}]
+  (as-> paths $
+        (sort compare-paths $)
+        (reduce grow-path-tree root-node $)
+        (path-tree->diff-transformer right-source $)
         (s/multi-transform $ left-source)))
