@@ -35,10 +35,11 @@
                                     printer)))]))))
 
 (defprotocol Path
-  (path [self x]))
+  (path [self [left right]]))
 
 (defn equality-partition-set [[a b] & _]
-  (hash-set (data/equality-partition a) (data/equality-partition b)))
+  (hash-set (data/equality-partition a)
+            (data/equality-partition b)))
 
 (defmulti children equality-partition-set)
 
@@ -46,7 +47,9 @@
   ([tag elem]
    (path-tag tag elem elem))
   ([tag elem val]
-   (if (= elem ::diff/nil) [::diff/nil ::diff/nil] [tag val])))
+   (if (= elem ::diff/nil)
+     [::diff/nil ::diff/nil]
+     [tag val])))
 
 (extend-type Object Path
   (path [_ _] []))
@@ -55,32 +58,32 @@
   (path [_ _] []))
 
 (extend-type java.util.Set Path
-  (path [_ [a b]]
-    [[::push [[:set a] [:set b]]] [a b] [::pop]]))
+  (path [_ [left right]]
+    [[::push [[:set left] [:set right]]] [left right] [::pop]]))
 
 (extend-type java.util.Map Path
-  (path [_ [a b]]
-    (let [path [[::push [(path-tag :m-key (first a))
-                         (path-tag :m-key (first b))]]
-                [(first a) (first b)]
+  (path [_ [[left-key left-value] [right-key right-value]]]
+    (let [path [[::push [(path-tag :m-key left-key)
+                         (path-tag :m-key right-key)]]
+                [left-key right-key]
                 [::pop]]]
-      (if (and (not= ::diff/nil (first a)) (not= ::diff/nil (first b)))
-        (into [[::push [(path-tag :m-val (first a))
-                        (path-tag :m-val (first b))]]
-               [(second a) (second b)]
+      (if (and (not= ::diff/nil left-key) (not= ::diff/nil right-key))
+        (into [[::push [(path-tag :m-val left-key)
+                        (path-tag :m-val right-key)]]
+               [left-value right-value]
                [::pop]]
               path)
         path))))
 
 (extend-type clojure.lang.MapEntry Path
-  (path [_ [a b]]
-    [[a b]]))
+  (path [_ [left right]]
+    [[left right]]))
 
 (extend-type java.util.List Path
-  (path [_ [a b index]]
-    [[::push [(if (= a ::diff/nil) [::diff/nil ::diff/nil] [:index index])
-              (if (= b ::diff/nil) [::diff/nil ::diff/nil] [:index index])]]
-     [a b]
+  (path [_ [left right index]]
+    [[::push [(path-tag :index left index)
+              (path-tag :index right index)]]
+     [left right]
      [::pop]]))
 
 (defmethod children :default [_ problem]
@@ -97,35 +100,34 @@
 (defn col->path-xf [[col]]
   (mapcat (comp reverse (partial path col))))
 
-(defmethod children #{:set}
-  [[left-set right-set :as comparison] problem]
-  (if (empty? left-set)
+(defn subset-col-children [dis
+                           nil-value
+                           [left right :as comparison] problem]
+  (if (empty? left)
     (list problem)
-    (for [left left-set
-          right (if (<= (count left-set) (count right-set))
-                  right-set
-                  (conj right-set ::diff/nil))]
-      (let [left-set* (disj left-set left)]
+    (for [l left
+          r (if (<= (count left) (count right))
+              right
+              (conj right nil-value))]
+      (let [left* (dis left l)]
         (as-> problem $
-              (if (seq left-set*)
-                (update $ :stack conj [(disj left-set left)
-                                       (disj right-set right)])
+              (if (seq left*)
+                (update $ :stack conj [left*
+                                       (dis right r)])
                 $)
-              (update $ :stack into (col->path-xf comparison)
-                      [[left right]]))))))
+              (update $ :stack into (col->path-xf comparison) [[l r]]))))))
 
-(defmethod children #{:map}
-  [[left-map right-map :as comparison] problem]
-  (if (empty? left-map)
-    (list problem)
-    (for [left left-map
-          right (if (<= (count left-map) (count right-map))
-                  right-map
-                  (conj right-map [::diff/nil ::diff/nil]))]
-      (-> problem
-          (update :stack conj [(dissoc left-map (first left))
-                               (dissoc right-map (first right))])
-          (update :stack into (col->path-xf comparison) [[left right]])))))
+(let [set-dis #(disj %1 %2)
+      nil-value ::diff/nil]
+  (defmethod children #{:set}
+    [comparison problem]
+    (subset-col-children set-dis nil-value comparison problem)))
+
+(let [map-dis #(dissoc %1 (first %2))
+      nil-value [::diff/nil ::diff/nil]]
+  (defmethod children #{:map}
+    [comparison problem]
+    (subset-col-children map-dis nil-value comparison problem)))
 
 (def take-until-both-empty-xf
   (take-while (comp (partial not= [::diff/nil ::diff/nil])
