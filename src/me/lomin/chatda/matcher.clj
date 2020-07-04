@@ -48,43 +48,38 @@
    (path-tag tag elem elem))
   ([tag elem val]
    (if (= elem ::diff/nil)
-     [::diff/nil ::diff/nil]
+     [::diff/nil]
      [tag val])))
 
-(extend-type Object Path
-  (path [_ _] []))
-
-(extend-type nil Path
-  (path [_ _] []))
+(defmacro with-tags
+  ([ta va _ pred tb vb]
+   `(if ~pred [[::pop] ~vb [::push ~tb]
+               [::pop] ~va [::push ~ta]]
+              [[::pop] ~va [::push ~ta]]))
+  ([tags values]
+   [[::pop] values [::push tags]]))
 
 (extend-type java.util.Set Path
   (path [_ [left right]]
-    [[::push [[:set left] [:set right]]] [left right] [::pop]]))
+    (with-tags [[:set left] [:set right]]
+               [left right])))
 
 (extend-type java.util.Map Path
   (path [_ [[left-key left-value] [right-key right-value]]]
-    (let [path [[::push [(path-tag :m-key left-key)
-                         (path-tag :m-key right-key)]]
-                [left-key right-key]
-                [::pop]]]
-      (if (and (not= ::diff/nil left-key) (not= ::diff/nil right-key))
-        (into [[::push [(path-tag :m-val left-key)
-                        (path-tag :m-val right-key)]]
-               [left-value right-value]
-               [::pop]]
-              path)
-        path))))
-
-(extend-type clojure.lang.MapEntry Path
-  (path [_ [left right]]
-    [[left right]]))
+    (with-tags [(path-tag :m-key left-key)
+                (path-tag :m-key right-key)]
+               [left-key right-key]
+               :when (and (not= ::diff/nil left-key)
+                          (not= ::diff/nil right-key))
+               [(path-tag :m-val left-key)
+                (path-tag :m-val right-key)]
+               [left-value right-value])))
 
 (extend-type java.util.List Path
   (path [_ [left right index]]
-    [[::push [(path-tag :index left index)
-              (path-tag :index right index)]]
-     [left right]
-     [::pop]]))
+    (with-tags [(path-tag :index left index)
+                (path-tag :index right index)]
+               [left right])))
 
 (defmethod children :default [_ problem]
   (list (-> problem
@@ -98,7 +93,7 @@
                                            (:right-path problem)])))))
 
 (defn col->path-xf [[col]]
-  (mapcat (comp reverse (partial path col))))
+  (mapcat (partial path col)))
 
 (defn subset-col-children [dis
                            nil-value
@@ -115,7 +110,8 @@
                 (update $ :stack conj [left*
                                        (dis right r)])
                 $)
-              (update $ :stack into (col->path-xf comparison) [[l r]]))))))
+              (update $ :stack into (search/transduce-1 (col->path-xf comparison)
+                                                        [l r])))))))
 
 (let [set-dis #(disj %1 %2)
       nil-value ::diff/nil]

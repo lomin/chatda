@@ -1,7 +1,6 @@
 (ns me.lomin.chatda.search
- (:require
-    [clojure.core.async :as async]
-    [clojure.core.async.impl.protocols :as async-buffer]))
+  (:require [clojure.core.async :as async]
+            [clojure.core.async.impl.protocols :as async-buffer]))
 
 (set! *warn-on-reflection* true)
 
@@ -79,8 +78,15 @@
 (defn transduce-1
   "apply a transducer on a single value"
   [xform x]
-  (let [f (xform combine)]
-    (f nil x)))
+  (let [f (xform
+            (fn [a b]
+              (if (nil? a)
+                [b]
+                (vary-meta (conj a b) assoc ::skip-unpack? true))))]
+    (let [result (f nil x)]
+      (if (::skip-unpack? (meta result))
+        result
+        (first result)))))
 
 (defn remove-worker-from [worker-pool worker]
   (filterv #(not= % worker) worker-pool))
