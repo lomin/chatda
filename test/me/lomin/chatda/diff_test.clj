@@ -3,35 +3,6 @@
             [me.lomin.chatda.diff :as diff]))
 
 (deftest sort-paths-test
-
-  (is (= [:index :m-val :set :m-key ::diff/nil nil]
-         (sort diff/compare-tags [:m-key nil ::diff/nil :set :index :m-val])))
-
-  (is (= [:m-key :m-val]
-         (diff/first-different-tags
-           [[[:m-key #{3}] [:set 3]] [[:set 1]]]
-           [[[:m-val #{3}]] [[:m-val #{1 2}]]])))
-
-  (is (= [:set nil]
-         (diff/first-different-tags
-           [[[:m-key #{3}] [:set 3]] [[:set 1]]]
-           [[[:m-key #{3}]] [[:m-val #{1 2}]]])))
-
-  (is (= [:set :index]
-         (diff/first-different-tags
-           [[[:m-key #{3}] [:set 3]] [[:set 1]]]
-           [[[:m-key #{3}] [:index 3]] [[:m-val #{1 2}]]])))
-
-  (is (= nil
-         (diff/first-different-tags
-           [[[:m-key #{3}] [:index 3]] [[:set 1]]]
-           [[[:m-key #{3}] [:index 3]] [[:m-val #{1 2}]]])))
-
-  (is (= [:m-key nil]
-         (diff/first-different-tags
-           [[[:m-key #{3}] [:set 3]] [[:set 1]]]
-           [[] [[:m-val #{1 2}]]])))
-
   (is (= [[[[:m-val #{3}]] [[:m-val #{1 2}]]]
           [[[:m-key #{3}] [:set 3]] [[:set 1]]]]
          (sort diff/compare-paths
@@ -42,11 +13,17 @@
           [[[:m-key #{3}] [:set 3]] [[:m-key #{1 2}] [:set 1]]]]
          (sort diff/compare-paths
                #{[[[:m-key #{3}] [:set 3]] [[:m-key #{1 2}] [:set 1]]]
-                 [[[:m-val #{3}] [:set 4]] [[:m-val #{1 2}] [:set 3]]]}))))
+                 [[[:m-val #{3}] [:set 4]] [[:m-val #{1 2}] [:set 3]]]})))
+
+  (is (= [[[[::diff/nil]] [[:index 1]]]
+          [[[::diff/nil]] [[:index 2]]]]
+         (sort diff/compare-paths
+               #{[[[::diff/nil]] [[:index 1]]]
+                 [[[::diff/nil]] [[:index 2]]]}))))
 
 (deftest grow-path-tree-test
   (is (= [::diff/node [] [[::diff/node [:m-val #{3}] [[::diff/leaf [[:m-val #{1 2}]]]]]]]
-         (diff/grow-path-tree [::diff/node [] []]
+         (diff/grow-path-tree diff/root-node
                               [[[:m-val #{3}]] [[:m-val #{1 2}]]])))
 
   (is (= [::diff/node [] [[::diff/node [:m-val #{3}] [[::diff/leaf [[:m-val #{1 2}]]]]]
@@ -62,4 +39,19 @@
               [[::diff/node [:test :me]
                 [[::diff/leaf [[:set 1]]]]]]]]]]]
          (diff/grow-path-tree [::diff/node [] [[::diff/node [:m-val #{3}] [[::diff/leaf [[:m-val #{1 2}]]]]]]]
-                              [[[:m-key #{3}] [:set 3] [:test :me]] [[:set 1]]]))))
+                              [[[:m-key #{3}] [:set 3] [:test :me]] [[:set 1]]])))
+
+  (is (= [::diff/node []
+          [[::diff/node [::diff/nil]
+            [[::diff/leaf [[:index 1]]]]]]]
+         (diff/grow-path-tree diff/root-node
+                              [[[::diff/nil]] [[:index 1]]])))
+
+  (is (= [::diff/node []
+          [[::diff/node [::diff/nil]
+            [[::diff/leaf [[:index 1]]]
+             [::diff/leaf [[:index 2]]]]]]]
+         (diff/grow-path-tree [::diff/node []
+                               [[::diff/node [::diff/nil]
+                                 [[::diff/leaf [[:index 1]]]]]]]
+                              [[[::diff/nil]] [[:index 2]]]))))

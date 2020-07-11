@@ -37,18 +37,12 @@
 (defprotocol Path
   (path [self [left right]]))
 
-(defn equality-partition-set [[a b] & _]
-  (hash-set (data/equality-partition a)
-            (data/equality-partition b)))
-
-(defmulti children equality-partition-set)
-
 (defn path-tag
   ([tag elem]
    (path-tag tag elem elem))
   ([tag elem val]
    (if (= elem ::diff/nil)
-     [::diff/nil]
+     [::diff/nil val]
      [tag val])))
 
 (defmacro with-tags
@@ -80,6 +74,12 @@
     (with-tags [(path-tag :index left index)
                 (path-tag :index right index)]
                [left right])))
+
+(defn equality-partition-set [[a b] & _]
+  (hash-set (data/equality-partition a)
+            (data/equality-partition b)))
+
+(defmulti children equality-partition-set)
 
 (defmethod children :default [_ problem]
   (list (-> problem
@@ -145,19 +145,18 @@
   (and (empty? (:stack problem))
        (empty? (:fails problem))))
 
-(defn find-best [best & problems]
-  (-> (if (success? best)
-        best
-        (reduce (fn [best* candidate]
-                  (cond
-                    (not candidate) best*
-                    (success? candidate) (reduced candidate)
-                    (< (search/depth best*)
-                       (search/depth candidate)) candidate
-                    :else best*))
-                best
-                problems))
-      (dissoc :best)))
+(letfn [(choose-best [best candidate]
+        (cond
+          (not candidate) best
+          (success? candidate) (reduced candidate)
+          (< (search/depth best)
+             (search/depth candidate)) candidate
+          :else best))]
+  (defn find-best [best & problems]
+    (-> (if (success? best)
+          best
+          (reduce choose-best best problems))
+        (dissoc :best))))
 
 (defn safe-pop [xs] (if (seq xs) (pop xs) xs))
 
@@ -173,7 +172,7 @@
       (update :right-path safe-pop)
       (update :stack safe-pop)))
 
-(defrecord SubsetCompareProblem []
+(defrecord EqualStarProblem []
   search/Searchable
   (children [problem]
     (loop [{stack :stack :as p} problem]
@@ -198,16 +197,16 @@
   (depth [this] (- (:depth this 0)
                    (count (:fails this)))))
 
-(defn subset-problem [left right]
-  (map->SubsetCompareProblem {:source     [left right]
-                              :stack      (list [left right])
-                              :fails      #{}
-                              :depth      0
-                              :left-path  []
-                              :right-path []}))
+(defn equal-star-problem [left right]
+  (map->EqualStarProblem {:source     [left right]
+                          :stack      (list [left right])
+                          :fails      #{}
+                          :depth      0
+                          :left-path  []
+                          :right-path []}))
 
 (defn =* [a b & args]
-  (as-> (subset-problem a b) $
+  (as-> (equal-star-problem a b) $
         (apply search/parallel-depth-first-search $ (or (seq args) [10 4]))
         (find-best $ (:best $))
         (diff/diff $)))
