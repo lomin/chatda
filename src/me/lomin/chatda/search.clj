@@ -12,14 +12,14 @@
   Searchable
   (children [_] nil))
 
-(deftype OrderedSetBuffer [^long n ^java.util.TreeSet buf]
+(deftype PriorityQueueBuffer [^long n ^java.util.PriorityQueue buf]
   async-buffer/Buffer
   (full? [this]
     (>= (.size buf) n))
   (remove! [this]
-    (.pollLast buf))
+    (.poll buf))
   (add!* [this itm]
-    (.add buf itm)
+    (.offer buf itm)
     this)
   (close-buf! [this])
   clojure.lang.Counted
@@ -36,8 +36,8 @@
     (if (= result 0) -1 result)))
 
 (defn stack-buffer [^long n]
-  (new OrderedSetBuffer n
-       (new java.util.TreeSet
+  (new PriorityQueueBuffer n
+       (new java.util.PriorityQueue n
             ^java.util.Comparator depth-first-comparator)))
 
 (defprotocol ExhaustiveSearch
