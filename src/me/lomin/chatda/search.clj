@@ -1,6 +1,6 @@
 (ns me.lomin.chatda.search
   (:require [clojure.core.async :as async]
-            [clojure.core.async.impl.protocols :as async-buffer]))
+            [clojure.core.async.impl.protocols :as async-protocols]))
 
 (set! *warn-on-reflection* true)
 
@@ -13,7 +13,7 @@
   (children [_] nil))
 
 (deftype PriorityQueueBuffer [^long n ^java.util.PriorityQueue buf]
-  async-buffer/Buffer
+  async-protocols/Buffer
   (full? [this]
     (>= (.size buf) n))
   (remove! [this]
@@ -56,11 +56,13 @@
 
 (defmacro combine->offer->recur [$ stack chan]
   `(let [[$first# & [spawn# & $nnext# :as $next#]] ~stack]
-     (recur
-       (combine ~$ $first#)
-       (if (and spawn# (async/offer! ~chan spawn#))
-         $nnext#
-         $next#))))
+     (if (async-protocols/closed? ~chan)
+       ~$
+       (recur
+         (combine ~$ $first#)
+         (if (and spawn# (async/offer! ~chan spawn#))
+           $nnext#
+           $next#)))))
 
 (defn add-async-worker-to [worker-pool problem xform chan]
   (->> (async/go-loop [$ problem
