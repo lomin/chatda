@@ -97,7 +97,7 @@
                         :else %)
                  selector-tree))
 
-(defn diff [{paths :fails [left-source right-source] :source}]
+(defn diff [{paths :diffs [left-source right-source] :source}]
   (as-> paths $
         (sort compare-paths $)
         (reduce grow-path-tree root-node $)

@@ -10,15 +10,15 @@
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]))
 
-(defn fail-paths [problem]
-  (:fails (matcher/find-best problem (:best problem))))
+(defn diff-paths [problem]
+  (:diffs (matcher/find-best problem (:best problem))))
 
 (defn solve [problem]
   (let [{[left-source right-source] :source :as best-solution} (matcher/find-best problem (:best problem))]
     (vec (sort rank (map (fn [[left-path right-path]]
                            [(s/select-first (diff/path->navigators diff/left-navs left-path) left-source)
                             (s/select-first (diff/path->navigators diff/right-navs right-path) right-source)])
-                         (:fails best-solution))))))
+                         (:diffs best-solution))))))
 
 (deftest solve-test
 
@@ -50,18 +50,18 @@
          (-> (matcher/equal-star-problem [1]
                                          [1 2 3])
              (search/parallel-depth-first-search 2 2)
-             (fail-paths))))
+             (diff-paths))))
 
   (is (= #{[[[:index 0]]
             [[:index 0]]]}
          (-> (matcher/equal-star-problem [nil 1] [0 1])
              (search/parallel-depth-first-search 2 2)
-             (fail-paths))))
+             (diff-paths))))
 
   (is (= #{[[[:set 2]] [[:set ::diff/nil]]]}
          (-> (matcher/equal-star-problem #{1 2} #{1})
              (search/parallel-depth-first-search 2 2)
-             (fail-paths))))
+             (diff-paths))))
 
   (is (= []
          (-> (matcher/equal-star-problem [1 [2 3]]
@@ -243,7 +243,6 @@
 (defn insertion? [x]
   (instance? lambdaisland.deep_diff.diff.Insertion x))
 
-(comment def end-2-end-generative-test nil)
 (test/defspec end-2-end-generative-test
               10
               (prop/for-all [left (gen/recursive-gen containers scalars)
@@ -251,15 +250,3 @@
                             (let [d (=* left right)]
                               (or (= d left)
                                   (and (or (insertion? d) (= left (left-undiff d))))))))
-
-(comment
-
-  (defn do-solve [a b & args]
-    (-> (apply search/parallel-depth-first-search (matcher/equal-star-problem a b) (or (seq args) [1 1]))
-        :best))
-
-  (defn ch
-    ([p]
-     (search/children (search/transduce-1 (search/xform p) p)))
-    ([n ps]
-     (sequence (search/xform (first ps)) (search/children (nth ps n))))))

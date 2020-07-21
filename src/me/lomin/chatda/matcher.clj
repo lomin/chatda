@@ -83,13 +83,13 @@
 
 (defmethod children :default [_ problem]
   (list (-> problem
-            (update :fails conj [(:left-path problem)
+            (update :diffs conj [(:left-path problem)
                                  (:right-path problem)]))))
 
 (defmethod children #{:atom} [[a b] problem]
   (list (-> (if (= a b)
               problem
-              (update problem :fails conj [(:left-path problem)
+              (update problem :diffs conj [(:left-path problem)
                                            (:right-path problem)])))))
 
 (defn col->path-xf [[col]]
@@ -143,15 +143,15 @@
 
 (defn success? [problem]
   (and (empty? (:stack problem))
-       (empty? (:fails problem))))
+       (empty? (:diffs problem))))
 
 (letfn [(choose-best [best candidate]
-        (cond
-          (not candidate) best
-          (success? candidate) (reduced candidate)
-          (< (search/depth best)
-             (search/depth candidate)) candidate
-          :else best))]
+          (cond
+            (not candidate) best
+            (success? candidate) (reduced candidate)
+            (< (search/depth best)
+               (search/depth candidate)) candidate
+            :else best))]
   (defn find-best [best & problems]
     (-> (if (success? best)
           best
@@ -195,12 +195,12 @@
                  (:best other))))
   search/DepthFirstSearchable
   (depth [this] (- (:depth this 0)
-                   (count (:fails this)))))
+                   (count (:diffs this)))))
 
 (defn equal-star-problem [left right]
   (map->EqualStarProblem {:source     [left right]
                           :stack      (list [left right])
-                          :fails      #{}
+                          :diffs      #{}
                           :depth      0
                           :left-path  []
                           :right-path []}))
