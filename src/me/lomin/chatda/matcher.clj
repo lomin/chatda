@@ -34,46 +34,19 @@
                  (output/format-doc actual
                                     printer)))]))))
 
-(defprotocol Path
-  (path [self [left right]]))
-
 (defn path-tag
-  ([tag elem]
-   (path-tag tag elem elem))
+  ([tag elem] (path-tag tag elem elem))
   ([tag elem val]
    (if (= elem ::diff/nil)
      [::diff/nil val]
      [tag val])))
 
 (defmacro with-tags
+  ([tags values] [[::pop] values [::push tags]])
   ([ta va _ pred tb vb]
    `(if ~pred [[::pop] ~vb [::push ~tb]
                [::pop] ~va [::push ~ta]]
-              [[::pop] ~va [::push ~ta]]))
-  ([tags values]
-   [[::pop] values [::push tags]]))
-
-(extend-type java.util.Set Path
-  (path [_ [left right]]
-    (with-tags [[:set left] [:set right]]
-               [left right])))
-
-(extend-type java.util.Map Path
-  (path [_ [[left-key left-value] [right-key right-value]]]
-    (with-tags [(path-tag :m-key left-key)
-                (path-tag :m-key right-key)]
-               [left-key right-key]
-               :when (and (not= ::diff/nil left-key)
-                          (not= ::diff/nil right-key))
-               [(path-tag :m-val left-key)
-                (path-tag :m-val right-key)]
-               [left-value right-value])))
-
-(extend-type java.util.List Path
-  (path [_ [left right index]]
-    (with-tags [(path-tag :index left index)
-                (path-tag :index right index)]
-               [left right])))
+              [[::pop] ~va [::push ~ta]])))
 
 (defn equality-partition-set [[a b] & _]
   (hash-set (data/equality-partition a)
@@ -82,117 +55,121 @@
 (defmulti children equality-partition-set)
 
 (defmethod children :default [_ problem]
-  (list (-> problem
-            (update :diffs conj [(:left-path problem)
-                                 (:right-path problem)]))))
+  (list (update problem :diffs conj [(:left-path problem)
+                                     (:right-path problem)])))
 
 (defmethod children #{:atom} [[a b] problem]
-  (list (-> (if (= a b)
-              problem
-              (update problem :diffs conj [(:left-path problem)
-                                           (:right-path problem)])))))
+  (list (cond-> problem
+                (not= a b) (update :diffs conj [(:left-path problem)
+                                                (:right-path problem)]))))
 
-(defn col->path-xf [[col]]
-  (mapcat (partial path col)))
+(defn set|map:ensure-same-length-as [xs compare-xs nil-value]
+  (cond-> xs (< (count xs) (count compare-xs)) (conj nil-value)))
 
-(defn subset-col-children [dis
-                           nil-value
-                           [left right :as comparison] problem]
+(defn set|map:children [set|map:path dis nil-value [left right] problem]
   (if (empty? left)
     (list problem)
     (for [l left
-          r (if (<= (count left) (count right))
-              right
-              (conj right nil-value))]
-      (let [left* (dis left l)]
-        (as-> problem $
-              (if (seq left*)
-                (update $ :stack conj [left*
-                                       (dis right r)])
-                $)
-              (update $ :stack into (search/transduce-1 (col->path-xf comparison)
-                                                        [l r])))))))
+          r (-> right (set|map:ensure-same-length-as left nil-value))
+          :let [left-1 (dis left l)]]
+      (cond-> problem
+              (seq left-1) (update :stack conj [left-1 (dis right r)])
+              :always (update :stack into (set|map:path l r))))))
 
-(let [set-dis #(disj %1 %2)
-      nil-value ::diff/nil]
-  (defmethod children #{:set}
-    [comparison problem]
-    (subset-col-children set-dis nil-value comparison problem)))
+(def set:nil-value ::diff/nil)
 
-(let [map-dis #(dissoc %1 (first %2))
-      nil-value [::diff/nil ::diff/nil]]
-  (defmethod children #{:map}
-    [comparison problem]
-    (subset-col-children map-dis nil-value comparison problem)))
+(defn set:dis [s x] (disj s x))
 
-(def take-until-both-empty-xf
+(defn set:path [left right]
+  (with-tags [[:set left] [:set right]]
+             [left right]))
+
+(defmethod children #{:set}
+  [comparison problem]
+  (set|map:children set:path set:dis set:nil-value comparison problem))
+
+(def map:nil-value [::diff/nil ::diff/nil])
+
+(defn map:dis [m [k]] (dissoc m k))
+
+(defn map:path [[left-key left-value] [right-key right-value]]
+  (with-tags [(path-tag :m-key left-key) (path-tag :m-key right-key)]
+             [left-key right-key]
+             :when (and (not= ::diff/nil left-key)
+                        (not= ::diff/nil right-key))
+             [(path-tag :m-val left-key) (path-tag :m-val right-key)]
+             [left-value right-value]))
+
+(defmethod children #{:map}
+  [comparison problem]
+  (set|map:children map:path map:dis map:nil-value comparison problem))
+
+(def seq:take-until-both-empty-xf
   (take-while (comp (partial not= [::diff/nil ::diff/nil])
                     (partial take 2))))
 
+(def seq:mapcat-path-xf
+  (mapcat (fn [[left right index]]
+            (with-tags [(path-tag :index left index)
+                        (path-tag :index right index)]
+                       [left right]))))
+
 (defmethod children #{:sequential}
-  [[left-xs right-xs :as comparison] problem]
-  (list (update problem
-                :stack
-                into
-                (comp take-until-both-empty-xf
-                      (col->path-xf comparison))
+  [[left-xs right-xs] problem]
+  (list (update problem :stack into
+                (comp seq:take-until-both-empty-xf
+                      seq:mapcat-path-xf)
                 (map vector
                      (concat left-xs (repeat ::diff/nil))
                      (concat right-xs (repeat ::diff/nil))
                      (range)))))
 
-(defn success? [problem]
-  (and (empty? (:stack problem))
-       (empty? (:diffs problem))))
+(defn success? [{:keys [stack diffs]}]
+  (and (empty? stack) (empty? diffs)))
 
-(letfn [(choose-best [best candidate]
-          (cond
-            (not candidate) best
-            (success? candidate) (reduced candidate)
-            (< (search/depth best)
-               (search/depth candidate)) candidate
-            :else best))]
-  (defn find-best [best & problems]
-    (-> (if (success? best)
-          best
-          (reduce choose-best best problems))
+(defn choose-better [defender challenger]
+  (cond
+    (success? challenger) (reduced challenger)
+    (< (search/depth defender)
+       (search/depth challenger)) challenger
+    :else defender))
+
+(defn choose-best [& problems]
+  (if-let [[first-problem & rest-problems] (seq (filter some? problems))]
+    (-> (if (success? first-problem)
+          first-problem
+          (reduce choose-better first-problem rest-problems))
         (dissoc :best))))
-
-(defn safe-pop [xs] (if (seq xs) (pop xs) xs))
 
 (defn push-path [problem [left-path right-path]]
   (-> problem
       (update :left-path conj left-path)
       (update :right-path conj right-path)
-      (update :stack safe-pop)))
+      (update :stack pop)))
 
 (defn pop-path [problem]
   (-> problem
-      (update :left-path safe-pop)
-      (update :right-path safe-pop)
-      (update :stack safe-pop)))
+      (update :left-path pop)
+      (update :right-path pop)
+      (update :stack pop)))
 
 (defrecord EqualStarProblem []
   search/Searchable
   (children [problem]
     (loop [{stack :stack :as p} problem]
-      (when-let [[k v :as kv] (peek stack)]
+      (when-let [[k v :as comparison] (peek stack)]
         (condp = k
           ::push (recur (push-path p v))
           ::pop (recur (pop-path p))
-          (children kv (update p :stack pop))))))
+          (children comparison (update p :stack pop))))))
   (xform [_]
-    (map (fn [p] (update p :depth (fnil inc 0)))))
+    (map #(update % :depth (fnil inc 0))))
   search/ExhaustiveSearch
-  (stop? [this] (success? this))
+  (stop? [this]
+    (success? this))
   search/Combinable
   (combine [self other]
-    (assoc other
-      :best
-      (find-best self
-                 other
-                 (:best self)
-                 (:best other))))
+    (update other :best choose-best other self (:best self)))
   search/DepthFirstSearchable
   (depth [this] (- (:depth this 0)
                    (count (:diffs this)))))
@@ -208,5 +185,5 @@
 (defn =* [a b & args]
   (as-> (equal-star-problem a b) $
         (apply search/parallel-depth-first-search $ (or (seq args) [10 4]))
-        (find-best $ (:best $))
-        (diff/diff $)))
+        (choose-best $ (:best $))
+        (diff/diff (:diffs $) (:source $))))

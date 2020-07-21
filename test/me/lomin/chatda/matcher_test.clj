@@ -11,10 +11,11 @@
             [clojure.test.check.properties :as prop]))
 
 (defn diff-paths [problem]
-  (:diffs (matcher/find-best problem (:best problem))))
+  (:diffs (matcher/choose-best problem (:best problem))))
 
 (defn solve [problem]
-  (let [{[left-source right-source] :source :as best-solution} (matcher/find-best problem (:best problem))]
+  (let [{[left-source right-source] :source :as best-solution}
+        (matcher/choose-best problem (:best problem))]
     (vec (sort rank (map (fn [[left-path right-path]]
                            [(s/select-first (diff/path->navigators diff/left-navs left-path) left-source)
                             (s/select-first (diff/path->navigators diff/right-navs right-path) right-source)])
@@ -243,8 +244,8 @@
 (defn insertion? [x]
   (instance? lambdaisland.deep_diff.diff.Insertion x))
 
-(test/defspec end-2-end-generative-test
-              10
+(test/defspec ^:kaocha/pending end-2-end-generative-test
+              15
               (prop/for-all [left (gen/recursive-gen containers scalars)
                              right (gen/recursive-gen containers scalars)]
                             (let [d (=* left right)]
