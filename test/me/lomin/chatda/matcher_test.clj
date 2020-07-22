@@ -59,8 +59,13 @@
              (search/parallel-depth-first-search 2 2)
              (diff-paths))))
 
-  (is (= #{[[[:set 2]] [[:set ::diff/nil]]]}
+  (is (= #{[[[:set 2]] [[::diff/nil ::diff/nil]]]}
          (-> (matcher/equal-star-problem #{1 2} #{1})
+             (search/parallel-depth-first-search 2 2)
+             (diff-paths))))
+
+  (is (= #{}
+         (-> (matcher/equal-star-problem #{1} #{1 2})
              (search/parallel-depth-first-search 2 2)
              (diff-paths))))
 

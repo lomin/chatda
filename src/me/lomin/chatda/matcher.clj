@@ -35,18 +35,16 @@
                                     printer)))]))))
 
 (defn path-tag
+  ([tags] (mapv (partial cons 'path-tag) tags))
   ([tag elem] (path-tag tag elem elem))
-  ([tag elem val]
-   (if (= elem ::diff/nil)
-     [::diff/nil val]
-     [tag val])))
+  ([tag elem val] (if (= elem ::diff/nil) [::diff/nil val] [tag val])))
 
 (defmacro with-tags
-  ([tags values] [[::pop] values [::push tags]])
+  ([tags values] [[::pop] values [::push (path-tag tags)]])
   ([ta va _ pred tb vb]
-   `(if ~pred [[::pop] ~vb [::push ~tb]
-               [::pop] ~va [::push ~ta]]
-              [[::pop] ~va [::push ~ta]])))
+   `(if ~pred [[::pop] ~vb [::push (path-tag ~@tb)]
+               [::pop] ~va [::push (path-tag ~@ta)]]
+              [[::pop] ~va [::push (path-tag ~@ta)]])))
 
 (defn equality-partition-set [[a b] & _]
   (hash-set (data/equality-partition a)
@@ -93,11 +91,11 @@
 (defn map:dis [m [k]] (dissoc m k))
 
 (defn map:path [[left-key left-value] [right-key right-value]]
-  (with-tags [(path-tag :m-key left-key) (path-tag :m-key right-key)]
+  (with-tags [[:m-key left-key] [:m-key right-key]]
              [left-key right-key]
              :when (and (not= ::diff/nil left-key)
                         (not= ::diff/nil right-key))
-             [(path-tag :m-val left-key) (path-tag :m-val right-key)]
+             [[:m-val left-key] [:m-val right-key]]
              [left-value right-value]))
 
 (defmethod children #{:map}
@@ -110,8 +108,8 @@
 
 (def seq:mapcat-path-xf
   (mapcat (fn [[left right index]]
-            (with-tags [(path-tag :index left index)
-                        (path-tag :index right index)]
+            (with-tags [[:index left index]
+                        [:index right index]]
                        [left right]))))
 
 (defmethod children #{:sequential}
