@@ -99,7 +99,7 @@
 
 (defn diff [paths [left-source right-source]]
   (as-> paths $
-        (sort compare-paths $)
+        ;(sort compare-paths $)
         (reduce grow-path-tree root-node $)
         (path-tree->diff-transformer right-source $)
         (s/multi-transform $ left-source)))

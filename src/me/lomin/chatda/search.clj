@@ -57,7 +57,7 @@
 (defmacro combine->offer->recur [$ stack chan]
   `(let [[$first# & [spawn# & $nnext# :as $next#]] ~stack]
      (if (async-protocols/closed? ~chan)
-       ~$
+       (combine ~$ $first#)
        (recur
          (combine ~$ $first#)
          (if (and spawn# (async/offer! ~chan spawn#))
@@ -93,34 +93,47 @@
 (defn remove-worker-from [worker-pool worker]
   (filterv #(not= % worker) worker-pool))
 
-(defn next-channel-value [worker-pool chan parallelism]
+(defn next-channel-value
+  [worker-pool control-chans parallelism]
   (if (<= parallelism (count worker-pool))
-    (async/alts!! worker-pool)
+    (async/alts!! (into worker-pool (rest control-chans)))
     (if (seq worker-pool)
-      (async/alts!! (conj worker-pool chan))
-      (async/alts!! [chan] :default nil))))
+      (async/alts!! (into worker-pool control-chans))
+      (async/alts!! control-chans :default nil))))
 
-(defn rec:parallel-depth-first-search [root-problem xform chan parallelism]
+(defn rec:parallel-depth-first-search
+  [root-problem xform [main-chan timeout-chan :as control-chans] parallelism]
   (loop [problem root-problem
          worker-pool []]
-    (let [[$val ch] (next-channel-value worker-pool chan parallelism)]
+    (let [[$val ch] (next-channel-value worker-pool control-chans parallelism)]
       (cond
         (reduced? $val) @$val
-        (= ch chan) (recur problem
-                           (add-async-worker-to worker-pool $val xform chan))
+        (= ch main-chan) (recur problem
+                           (add-async-worker-to worker-pool
+                                                $val xform main-chan))
         (= ch :default) problem
+        (= ch timeout-chan) (do (async/close! main-chan)
+                                problem)
         :else (recur (combine problem $val)
                      (remove-worker-from worker-pool ch))))))
 
 (defn parallel-depth-first-search
-  ([init chan-size parallelism]
+  ([init {:keys [chan-size parallelism timeout] :or {chan-size   10
+                                                     parallelism 4}}]
    (let [xform (xform init)
          root-problem (transduce-1 xform init)
-         chan (async/chan (stack-buffer chan-size))]
+         chan (async/chan (stack-buffer chan-size))
+         control-chans (cond-> [chan]
+                               timeout (conj (do (future (Thread/sleep timeout)
+                                                         (async/close! chan))
+                                                 (async/timeout timeout))))]
      (async/>!! chan root-problem)
      (let [result (rec:parallel-depth-first-search root-problem
                                                    xform
-                                                   chan
+                                                   control-chans
                                                    parallelism)]
        (async/close! chan)
-       result))))
+       result)))
+  ([init chan-size parallelism]
+   (parallel-depth-first-search init {:chan-size chan-size
+                                      :parallelism parallelism})))

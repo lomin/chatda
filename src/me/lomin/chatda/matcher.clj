@@ -174,7 +174,7 @@
 (defn equal-star-problem [left right]
   (map->EqualStarProblem {:source     [left right]
                           :stack      (list [left right])
-                          :diffs      #{}
+                          :diffs      '()
                           :depth      0
                           :left-path  []
                           :right-path []}))

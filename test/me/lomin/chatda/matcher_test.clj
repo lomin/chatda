@@ -46,30 +46,30 @@
              (search/parallel-depth-first-search 2 2)
              (solve))))
 
-  (is (= #{[[[::diff/nil 1]] [[:index 1]]]
-           [[[::diff/nil 2]] [[:index 2]]]}
+  (is (= (list [[[::diff/nil 1]] [[:index 1]]]
+               [[[::diff/nil 2]] [[:index 2]]])
          (-> (matcher/equal-star-problem [1]
                                          [1 2 3])
              (search/parallel-depth-first-search 2 2)
              (diff-paths))))
 
-  (is (= #{[[[:index 0]]
-            [[:index 0]]]}
+  (is (= (list [[[:index 0]]
+                [[:index 0]]])
          (-> (matcher/equal-star-problem [nil 1] [0 1])
              (search/parallel-depth-first-search 2 2)
              (diff-paths))))
 
-  (is (= #{[[[:set 2]] [[::diff/nil ::diff/nil]]]}
+  (is (= (list [[[:set 2]] [[::diff/nil ::diff/nil]]])
          (-> (matcher/equal-star-problem #{1 2} #{1})
              (search/parallel-depth-first-search 2 2)
              (diff-paths))))
 
-  (is (= #{}
+  (is (= '()
          (-> (matcher/equal-star-problem #{1} #{1 2})
              (search/parallel-depth-first-search 2 2)
              (diff-paths))))
 
-  (is (= []
+  (is (= '()
          (-> (matcher/equal-star-problem [1 [2 3]]
                                          [1 [2 3]])
              (search/parallel-depth-first-search 2 2)
@@ -229,13 +229,21 @@
 
   (is (= #{(->Deletion "")
            (->Deletion 0)}
-         (=* #{"" 0} #{})))
+         (=* #{"" 0} #{})
+         (=* #{"" 0} #{} {:chan-size   1
+                          :parallelism 1
+                          :timeout     1000})))
 
   (is (= {0 (->Mismatch 0 1)}
          (=* {0 0}
              {0 1, -1 0}
              1
-             1))))
+             1)
+         (=* {0 0}
+             {0 1, -1 0}
+             {:chan-size   1
+              :parallelism 1
+              :timeout     1000}))))
 
 (def containers (fn [inner-gen]
                   (gen/one-of [(gen/list inner-gen)
@@ -243,16 +251,21 @@
                                (gen/set inner-gen)
                                (gen/map inner-gen inner-gen)])))
 
-(def scalars (gen/frequency [[10 gen/any-printable]
+(def scalars (gen/frequency [[10 gen/simple-type-printable-equatable]
                              [1 (gen/return nil)]]))
 
 (defn insertion? [x]
   (instance? lambdaisland.deep_diff.diff.Insertion x))
 
-(test/defspec ^:kaocha/pending end-2-end-generative-test
-              15
-              (prop/for-all [left (gen/recursive-gen containers scalars)
-                             right (gen/recursive-gen containers scalars)]
-                            (let [d (=* left right)]
-                              (or (= d left)
-                                  (and (or (insertion? d) (= left (left-undiff d))))))))
+(test/defspec end-2-end-generative-test
+  {:num-tests 100}
+  (prop/for-all [chan-size (gen/fmap inc gen/nat)
+                 parallelism (gen/fmap inc gen/nat)
+                 left (gen/recursive-gen containers scalars)
+                 right (gen/recursive-gen containers scalars)]
+    (let [d (=* left right {:chan-size   chan-size
+                            :parallelism parallelism
+                            :timeout     1000})]
+      (or (= d left)
+          (and (or (insertion? d) (= left (left-undiff d))))
+          (prn (= d left) (= left (left-undiff d)) d left right)))))
