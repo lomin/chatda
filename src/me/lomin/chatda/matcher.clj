@@ -35,16 +35,16 @@
                                     printer)))]))))
 
 (defn path-tag
-  ([tags] (mapv (partial cons 'path-tag) tags))
   ([tag elem] (path-tag tag elem elem))
   ([tag elem val] (if (= elem ::diff/nil) [::diff/nil val] [tag val])))
 
-(defmacro with-tags
-  ([tags values] [[::pop] values [::push (path-tag tags)]])
-  ([ta va _ pred tb vb]
-   `(if ~pred [[::pop] ~vb [::push (path-tag ~@tb)]
-               [::pop] ~va [::push (path-tag ~@ta)]]
-              [[::pop] ~va [::push (path-tag ~@ta)]])))
+(defmacro stack-updates
+  ([path-pair values]
+   [[::pop] values [::push (mapv (partial cons 'path-tag) path-pair)]])
+  ([path-0 value-0 _ pred path-1 value-1]
+   `(if ~pred [[::pop] ~value-1 [::push (path-tag ~@path-1)]
+               [::pop] ~value-0 [::push (path-tag ~@path-0)]]
+              [[::pop] ~value-0 [::push (path-tag ~@path-0)]])))
 
 (defn equality-partition-set [[a b] & _]
   (hash-set (data/equality-partition a)
@@ -64,7 +64,8 @@
 (defn set|map:ensure-same-length-as [xs compare-xs nil-value]
   (cond-> xs (< (count xs) (count compare-xs)) (conj nil-value)))
 
-(defn set|map:children [set|map:path dis nil-value [left right] problem]
+(defn set|map:children
+  [set|map:stack-updates dis nil-value [left right] problem]
   (if (empty? left)
     (list problem)
     (for [l left
@@ -72,51 +73,49 @@
           :let [left-1 (dis left l)]]
       (cond-> problem
               (seq left-1) (update :stack conj [left-1 (dis right r)])
-              :always (update :stack into (set|map:path l r))))))
+              :always (update :stack into (set|map:stack-updates l r))))))
 
 (def set:nil-value ::diff/nil)
 
 (defn set:dis [s x] (disj s x))
 
-(defn set:path [left right]
-  (with-tags [[:set left] [:set right]]
-             [left right]))
+(defn set:stack-updates [left right]
+  (stack-updates [[:set left] [:set right]] [left right]))
 
 (defmethod children #{:set}
   [comparison problem]
-  (set|map:children set:path set:dis set:nil-value comparison problem))
+  (set|map:children set:stack-updates set:dis set:nil-value comparison problem))
 
 (def map:nil-value [::diff/nil ::diff/nil])
 
 (defn map:dis [m [k]] (dissoc m k))
 
-(defn map:path [[left-key left-value] [right-key right-value]]
-  (with-tags [[:m-key left-key] [:m-key right-key]]
-             [left-key right-key]
-             :when (and (not= ::diff/nil left-key)
-                        (not= ::diff/nil right-key))
-             [[:m-val left-key] [:m-val right-key]]
-             [left-value right-value]))
+(defn map:stack-updates [[left-key left-value] [right-key right-value]]
+  (stack-updates [[:m-key left-key] [:m-key right-key]]
+                 [left-key right-key]
+                 :when (and (not= ::diff/nil left-key)
+                            (not= ::diff/nil right-key))
+                 [[:m-val left-key] [:m-val right-key]]
+                 [left-value right-value]))
 
 (defmethod children #{:map}
   [comparison problem]
-  (set|map:children map:path map:dis map:nil-value comparison problem))
+  (set|map:children map:stack-updates map:dis map:nil-value comparison problem))
 
 (def seq:take-until-both-empty-xf
   (take-while (comp (partial not= [::diff/nil ::diff/nil])
                     (partial take 2))))
 
-(def seq:mapcat-path-xf
+(def seq:mapcat-stack-updates-xf
   (mapcat (fn [[left right index]]
-            (with-tags [[:index left index]
-                        [:index right index]]
-                       [left right]))))
+            (stack-updates [[:index left index] [:index right index]]
+                           [left right]))))
 
 (defmethod children #{:sequential}
   [[left-xs right-xs] problem]
   (list (update problem :stack into
                 (comp seq:take-until-both-empty-xf
-                      seq:mapcat-path-xf)
+                      seq:mapcat-stack-updates-xf)
                 (map vector
                      (concat left-xs (repeat ::diff/nil))
                      (concat right-xs (repeat ::diff/nil))
