@@ -68,9 +68,9 @@
   [set|map:stack-updates dis nil-value [left right] problem]
   (if (empty? left)
     (list problem)
-    (for [l left
-          r (-> right (set|map:ensure-same-length-as left nil-value))
-          :let [left-1 (dis left l)]]
+    (for [r (-> right (set|map:ensure-same-length-as left nil-value))
+          :let [l (first left)
+                left-1 (dis left l)]]
       (cond-> problem
               (seq left-1) (update :stack conj [left-1 (dis right r)])
               :always (update :stack into (set|map:stack-updates l r))))))
