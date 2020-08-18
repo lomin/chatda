@@ -63,8 +63,8 @@
   search/Searchable
   (children [this] (next-csps this))
   (xform [_] (filter consistent?))
-  search/DepthFirstSearchable
-  (depth [this] (count (remove nil? (vals (:assignment this))))))
+  search/Prioritizable
+  (priority [this] (count (remove nil? (vals (:assignment this))))))
 
 (def csp (map->ParallelMapColoringCsp
            (init [:red :green :blue]

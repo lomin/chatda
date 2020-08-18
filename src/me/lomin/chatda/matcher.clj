@@ -4,7 +4,8 @@
             [kaocha.report]
             [kaocha.output :as output]
             [me.lomin.chatda.search :as search]
-            [me.lomin.chatda.diff :as diff]))
+            [me.lomin.chatda.diff :as diff]
+            [com.rpl.specter :as s]))
 
 (defmethod clojure-test/assert-expr '=* [msg form]
   (let [[_ expected actual] form]
@@ -34,20 +35,62 @@
                  (output/format-doc actual
                                     printer)))]))))
 
-(defn equality-partition-set [[a b] problem]
+(defn equality-partition-set [[a b] _]
   (hash-set (data/equality-partition a)
             (data/equality-partition b)))
 
 (defmulti children equality-partition-set)
 
-(defmethod children :default [_ problem]
-  (list (update problem :diffs conj [(:left-path problem)
-                                     (:right-path problem)])))
+(defn heuristic-dispatch [problem]
+  (equality-partition-set (peek (:stack problem)) problem))
 
-(defmethod children #{:atom} [[a b] problem]
+(defmulti heuristic heuristic-dispatch)
+
+(defn complete-costs [problem]
+  (+ (:costs problem) (heuristic problem)))
+
+(defn atom-count [x] (or (::count (meta x)) 1))
+(defn atom-count-seq [x] (::count-seq (meta x)))
+
+(defmethod heuristic :default [problem]
+  (atom-count (first (peek (:stack problem)))))
+
+(defmethod heuristic #{:atom} [problem]
+  (let [[left right] (peek (:stack problem))]
+    (if (= left right) 0 1)))
+
+(defmethod heuristic #{:sequential} [problem]
+  (let [[left-xs right-xs :as comparison] (peek (:stack problem))
+        [a-xs b-xs] (if (<= (count left-xs) (count right-xs))
+                      comparison
+                      (reverse comparison))
+        diff-count (- (count b-xs) (count a-xs))]
+    (transduce (take diff-count) + (atom-count-seq b-xs))))
+
+(defn set|map:heuristic [problem]
+  (let [[left right] (peek (:stack problem))]
+    (if (<= (count left) (count right))
+      0
+      (let [diff-count (- (count left) (count right))]
+        (transduce (take diff-count) + (atom-count-seq left))))))
+
+(defmethod heuristic #{:set} [problem]
+  (set|map:heuristic problem))
+
+(defmethod heuristic #{:map} [problem]
+  (set|map:heuristic problem))
+
+(defn add-diff [problem left]
+  (-> problem
+      (update :diffs conj [(:left-path problem) (:right-path problem)])
+      (update :costs + (atom-count left))))
+
+(defmethod children :default [[left] problem]
+  (list (add-diff problem left)))
+
+(defmethod children #{:atom} [[left right] problem]
   (list (cond-> problem
-                (not= a b) (update :diffs conj [(:left-path problem)
-                                                (:right-path problem)]))))
+                (not= left right) (add-diff left))))
 
 (defn path-tag
   ([tag elem] (path-tag tag elem elem))
@@ -121,18 +164,21 @@
   [comparison problem]
   (set|map:children map:stack-updates map:dis map:nil-value comparison problem))
 
+(defn stack? [problem]
+  (boolean (seq (:stack problem))))
+
+(defn better? [p0 p1]
+  (neg? (compare (into [(stack? p0) (:depth p0)] (search/priority p0))
+                 (into [(stack? p1) (:depth p1)] (search/priority p1)))))
+
 (defn choose-better [defender challenger]
-  (cond
-    (search/stop? challenger) (reduced challenger)
-    (< (search/depth defender)
-       (search/depth challenger)) challenger
-    :else defender))
+  (if (better? challenger defender)
+    challenger
+    defender))
 
 (defn choose-best [& problems]
-  (if-let [[first-problem & rest-problems] (seq (filter some? problems))]
-    (-> (if (search/stop? first-problem)
-          first-problem
-          (reduce choose-better first-problem rest-problems))
+  (when-let [ps (seq (filter some? problems))]
+    (-> (reduce choose-better ps)
         (dissoc :best))))
 
 (defn push-path [problem [left-path right-path]]
@@ -147,34 +193,78 @@
       (update :right-path pop)
       (update :stack pop)))
 
+(defn update-path [problem]
+  (loop [{stack :stack :as p} problem]
+    (if-let [[k v] (peek stack)]
+      (condp = k
+        ::push (recur (push-path p v))
+        ::pop (recur (pop-path p))
+        p)
+      p)))
+
 (defrecord EqualStarProblem []
   search/Searchable
-  (children [problem]
-    (loop [{stack :stack :as p} problem]
-      (when-let [[k v :as comparison] (peek stack)]
-        (condp = k
-          ::push (recur (push-path p v))
-          ::pop (recur (pop-path p))
-          (children comparison (update p :stack pop))))))
+  (children [{stack :stack :as problem}]
+    (when-let [comparison (peek stack)]
+      (map update-path
+           (children comparison (update problem :stack pop)))))
   (xform [_]
-    (map #(update % :depth (fnil inc 0))))
+    (comp (remove #(< @(:best-costs %) (complete-costs %)))
+          (map #(update % :depth (fnil dec 0)))))
   search/ExhaustiveSearch
-  (stop? [{:keys [stack diffs]}]
-    (and (empty? stack) (empty? diffs)))
+  (stop [{:keys [diffs best-costs] :as this}]
+    (swap! best-costs min (:costs this))
+    (cond-> this
+            (empty? diffs) (reduced)))
   search/Combinable
-  (combine [self other]
-    (update other :best choose-best other self (:best self)))
-  search/DepthFirstSearchable
-  (depth [this] (- (:depth this 0)
-                   (count (:diffs this)))))
+  (combine [this other]
+    (update other :best choose-best other this (:best this)))
+  search/Prioritizable
+  (priority [this] [(complete-costs this)
+                    (hash (:diffs this))]))
+
+(def meta-count-xf
+  (map (comp (fnil identity 1) ::count meta)))
+
+(defn add-count-meta [x]
+  (let [xs (if (map? x) (mapcat seq x) (seq x))
+        xf (cond-> meta-count-xf
+                   (map? x) (comp (partition-all 2)
+                                  (map (partial apply +))))]
+    (as-> x $
+          (->> xs
+               (into '() xf)
+               (sort)
+               (vary-meta $ assoc ::count-seq))
+          (->> xs
+               (transduce meta-count-xf +)
+               (inc)
+               (vary-meta $ assoc ::count)))))
+
+(def coll-walker+meta-nav
+  (s/recursive-path
+    [] p
+    (s/if-path coll?
+               (s/continue-then-stay
+                 [s/ALL-WITH-META p]))))
+
+(defn prepare [x]
+  (s/transform coll-walker+meta-nav
+               add-count-meta
+               x))
 
 (defn equal-star-problem [left right]
-  (map->EqualStarProblem {:source     [left right]
-                          :stack      (list [left right])
-                          :diffs      '()
-                          :depth      0
-                          :left-path  []
-                          :right-path []}))
+  (let [left* (prepare left)
+        right* (prepare right)]
+    (map->EqualStarProblem {:compare    compare
+                            :source     [left* right*]
+                            :stack      (list [left* right*])
+                            :diffs      '()
+                            :depth      0
+                            :costs      0
+                            :left-path  []
+                            :right-path []
+                            :best-costs (atom Integer/MAX_VALUE)})))
 
 (defn =*
   ([a b] (=* a b nil))

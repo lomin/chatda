@@ -234,7 +234,7 @@
                           :parallelism 1
                           :timeout     1000})))
 
-  (is (= {0 (->Mismatch 0 1)}
+  (is (= {(->Mismatch 0 -1) 0}
          (=* {0 0}
              {0 1, -1 0}
              {:chan-size   1
@@ -244,6 +244,57 @@
              {:chan-size   1
               :parallelism 1
               :timeout     1000}))))
+
+(deftest prepare-test
+  (is (= 22
+         (matcher/atom-count
+           (matcher/prepare {1 [4
+                                5
+                                {{1 2 3 4} {5 6 7 8}}
+                                #{4 5 [6 7]}]}))))
+  (is (= '(1 1 6 11)
+         (matcher/atom-count-seq
+           (matcher/prepare [4
+                             5
+                             {{1 2 3 4} {5 6 7 8}}
+                             #{4 5 [6 7]}])))))
+
+(deftest heuristic-test
+  (is (= 0 (matcher/heuristic
+             (matcher/equal-star-problem 1 1))))
+  (is (= 1 (matcher/heuristic
+             (matcher/equal-star-problem 1 2))))
+  (is (= 1 (matcher/heuristic
+             (matcher/equal-star-problem #{} {}))))
+  (is (= 4 (matcher/heuristic
+             (matcher/equal-star-problem '(1)
+                                         (range 5)))))
+  (is (= 6 (matcher/heuristic
+             (matcher/equal-star-problem '((1) (1 2 3))
+                                         '()))))
+  (is (= 0 (matcher/heuristic
+             (matcher/equal-star-problem #{1}
+                                         #{3 4}))))
+  (is (= 0 (matcher/heuristic
+             (matcher/equal-star-problem #{1 2}
+                                         #{3 4}))))
+  (is (= 1 (matcher/heuristic
+             (matcher/equal-star-problem #{1 2}
+                                         #{3}))))
+  (is (= 4 (matcher/heuristic
+             (matcher/equal-star-problem #{(range 5) (range 3)}
+                                         #{3}))))
+  (is (= 0 (matcher/heuristic
+             (matcher/equal-star-problem {1 2}
+                                         {3 4 5 6}))))
+  (is (= 2 (matcher/heuristic
+             (matcher/equal-star-problem {3 4 5 6}
+                                         {1 2}))))
+
+  (is (= 7
+         (matcher/heuristic
+           (matcher/equal-star-problem {(range 5) 2 3 (range 10)}
+                                       {1 2})))))
 
 (def containers (fn [inner-gen]
                   (gen/one-of [(gen/list inner-gen)

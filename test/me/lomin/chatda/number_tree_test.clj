@@ -25,13 +25,13 @@
                           max-size)))))
   (xform [_]
     (map #(assoc % :count (:value %))))
-  p/DepthFirstSearchable
-  (depth [this] (count (cnt:ancestors this)))
+  p/Prioritizable
+  (priority [this] (count (cnt:ancestors this)))
   p/ExhaustiveSearch
-  (stop? [this] false)
+  (stop [_] false)
   p/Combinable
-  (combine [self other]
-    (+=cnt:count self other)))
+  (combine [this other]
+    (+=cnt:count this other)))
 
 (defn cnt:count-root [branch-factor max-size]
   (map->CountNumberTreeSearch {:value    0
@@ -52,8 +52,8 @@
                 (filter (fn [{v :value}] (<= v max-size))))
           (range 1 (inc branch))))
   (xform [_] (filter (comp even? :value)))
-  p/DepthFirstSearchable
-  (depth [this] (count (cnt:ancestors this))))
+  p/Prioritizable
+  (priority [this] (count (cnt:ancestors this))))
 
 (defn search-root [branch-factor max-size]
   (map->ParallelNumberTreeSearch {:value    0
