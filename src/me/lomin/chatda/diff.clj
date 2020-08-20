@@ -15,6 +15,24 @@
 (defn terminal-nav [tag & args]
   (s/terminal #(conj % (into [tag] args))))
 
+(def tag-ranking
+  (into {}
+        (map-indexed (fn [i k] [k i])
+                     [:index :m-val :set :m-key ::nil nil])))
+
+(defn comparable-vector [path]
+  (s/select [s/ALL
+             s/ALL
+             (s/filterer (partial instance? java.lang.Comparable))
+             (s/view (fn [[tag opt-arg]]
+                       [(tag-ranking tag) opt-arg]))
+             s/ALL]
+            path))
+
+(defn compare-paths [left-path right-path]
+  (rank (comparable-vector left-path)
+        (comparable-vector right-path)))
+
 (defn upsert-navigator [inner-navigator path-segment]
   (let [path-segment-present?-nav [s/ALL
                                    tag-nav
@@ -81,6 +99,7 @@
 
 (defn diff [paths [left-source right-source]]
   (as-> paths $
+        ;(sort compare-paths $)
         (reduce grow-path-tree root-node $)
         (path-tree->diff-transformer right-source $)
         (s/multi-transform $ left-source)))
