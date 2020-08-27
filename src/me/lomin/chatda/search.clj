@@ -116,7 +116,7 @@
                      (remove-worker-from worker-pool ch))))))
 
 (def priority-xf (map (fn [x] [x (priority x)])))
-(def depth-first-comparator #(compare %2 %1))
+(def depth-first-comparator (fn [a b] (compare b a)))
 
 (defn parallel-depth-first-search
   ([{:keys [compare] :or {compare depth-first-comparator} :as init}
@@ -126,10 +126,10 @@
    (let [xform (xform init)
          root-problem (transduce-1 xform init)
          chan (async/chan (priority-queue chan-size compare))
+         close-chan-future (when timeout (future (Thread/sleep timeout)
+                                                 (async/close! chan)))
          control-chans (cond-> [chan]
-                               timeout (conj (do (future (Thread/sleep timeout)
-                                                         (async/close! chan))
-                                                 (async/timeout timeout))))]
+                               timeout (conj (async/timeout timeout)))]
      (async/>!! chan root-problem)
      (let [result (rec:parallel-depth-first-search root-problem
                                                    (comp xform priority-xf)
@@ -137,6 +137,7 @@
                                                    parallelism
                                                    compare)]
        (async/close! chan)
+       (when timeout (future-cancel close-chan-future))
        result)))
   ([init chan-size parallelism]
    (parallel-depth-first-search init {:chan-size   chan-size

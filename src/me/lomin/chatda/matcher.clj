@@ -15,9 +15,12 @@
              result# (~pred ~expected ~actual)]
          (if (= ~expected result#)
            (clojure-test/do-report {:type     :pass, :message ~msg,
-                                    :expected '~form, :actual (cons ~pred values#)})
+                                    :expected '~form,
+                                    :actual (cons ~pred values#)})
            (clojure-test/do-report {:type     :fail, :message ~msg,
-                                    :expected '~form, :actual (list '~'not (list '=* ~expected result#))}))
+                                    :expected '~form,
+                                    :actual (list '~'not
+                                                  (list '=* ~expected result#))}))
          result#))))
 
 (defmethod kaocha.report/print-expr '=* [m]
@@ -63,7 +66,7 @@
   (let [[left-xs right-xs :as comparison] (peek (:stack problem))
         [a-xs b-xs] (if (<= (count left-xs) (count right-xs))
                       comparison
-                      (reverse comparison))
+                      [right-xs left-xs])
         diff-count (- (count b-xs) (count a-xs))]
     (transduce (take diff-count) + (atom-count-seq b-xs))))
 
@@ -92,36 +95,65 @@
   (list (cond-> problem
                 (not= left right) (add-diff left))))
 
-(defn path-tag
-  ([tag elem] (path-tag tag elem elem))
-  ([tag elem val] (if (= elem ::diff/nil) [::diff/nil val] [tag val])))
+(defmacro stack-updates [path-0 values-0 & [_ pred path-1 values-1]]
+  `(if ~pred [[::pop] ~values-1 [::push ~path-1]
+              [::pop] ~values-0 [::push ~path-0]]
+             [[::pop] ~values-0 [::push ~path-0]]))
 
-(defmacro stack-updates
-  ([path-pair values]
-   [[::pop] values [::push (mapv (partial cons 'path-tag) path-pair)]])
-  ([path-0 values-0 _ pred path-1 values-1]
-   `(if ~pred [[::pop] ~values-1 [::push (path-tag ~@path-1)]
-               [::pop] ~values-0 [::push (path-tag ~@path-0)]]
-              [[::pop] ~values-0 [::push (path-tag ~@path-0)]])))
+(defn seq:stack-updates [left-index right-index left right]
+  (stack-updates [[:index left-index] [:index right-index]]
+                 [left right]))
 
-(def seq:take-until-both-empty-xf
-  (take-while (comp (partial not= [::diff/nil ::diff/nil])
-                    (partial take 2))))
+(defn seq:inc-meta-index [xs index]
+  (vary-meta xs assoc ::index (inc index)))
 
-(def seq:mapcat-stack-updates-xf
-  (mapcat (fn [[left right index]]
-            (stack-updates [[:index left index] [:index right index]]
-                           [left right]))))
+(defn seq:child-default [problem
+                         [left left-index left-seq]
+                         [right right-index right-seq]]
+  (-> problem
+      (update :stack conj [(seq:inc-meta-index (rest left-seq) left-index)
+                           (seq:inc-meta-index (rest right-seq) right-index)])
+      (update :stack into (seq:stack-updates left-index right-index left right))))
 
-(defmethod children #{:sequential}
-  [[left-xs right-xs] problem]
-  (list (update problem :stack into
-                (comp seq:take-until-both-empty-xf
-                      seq:mapcat-stack-updates-xf)
-                (map vector
-                     (concat left-xs (repeat ::diff/nil))
-                     (concat right-xs (repeat ::diff/nil))
-                     (range)))))
+(defn seq:child-delete-first-element [problem
+                                      [left left-index left-seq]
+                                      [_ _ right-seq]]
+  (-> problem
+      (update :stack conj [(seq:inc-meta-index (rest left-seq) left-index)
+                           right-seq])
+      (update :diffs conj [(conj (:left-path problem) [:index left-index])
+                           (conj (:right-path problem) [:index -1 :nil])])
+      (update :costs + (atom-count left))))
+
+(defn seq:child-add-first-element [problem
+                                   [_ left-index left-seq]
+                                   [right right-index right-seq]]
+  (-> problem
+      (update :stack conj [(seq:inc-meta-index left-seq left-index)
+                           (seq:inc-meta-index (rest right-seq) right-index)])
+      (update :diffs conj [(conj (:left-path problem) [:index left-index :before])
+                           (conj (:right-path problem) [:index right-index])])
+      (update :costs + (atom-count right))))
+
+(defn seq:first-or-absent [xs]
+  (if (seq xs) (first xs) ::diff/nil))
+
+(defn seq:meta-index [xs]
+  (::index (meta xs) 0))
+
+(defmethod children #{:sequential} [comparison problem]
+  (let [[[left :as left-indexed]
+         [right :as right-indexed]]
+        (map (juxt seq:first-or-absent seq:meta-index identity) comparison)]
+    (if (and (= left ::diff/nil) (= right ::diff/nil))
+      (list problem)
+      (cond-> (list)
+              (and (not= left ::diff/nil) (not= right ::diff/nil))
+              (conj (seq:child-default problem left-indexed right-indexed))
+              (not= left ::diff/nil)
+              (conj (seq:child-delete-first-element problem left-indexed right-indexed))
+              (not= right ::diff/nil)
+              (conj (seq:child-add-first-element problem left-indexed right-indexed))))))
 
 (defn set|map:ensure-same-length-as [xs compare-xs nil-value]
   (cond-> xs (< (count xs) (count compare-xs)) (conj nil-value)))
@@ -137,8 +169,6 @@
                 (seq left-1) (update :stack conj [left-1 (dis right r)])
                 :always (update :stack into (set|map:stack-updates l r)))))))
 
-(def set:nil-value ::diff/nil)
-
 (defn set:dis [s x] (disj s x))
 
 (defn set:stack-updates [left right]
@@ -146,9 +176,8 @@
 
 (defmethod children #{:set}
   [comparison problem]
-  (set|map:children set:stack-updates set:dis set:nil-value comparison problem))
-
-(def map:nil-value [::diff/nil ::diff/nil])
+  (set|map:children set:stack-updates
+                    set:dis ::diff/nil comparison problem))
 
 (defn map:dis [m [k]] (dissoc m k))
 
@@ -162,14 +191,19 @@
 
 (defmethod children #{:map}
   [comparison problem]
-  (set|map:children map:stack-updates map:dis map:nil-value comparison problem))
+  (set|map:children map:stack-updates
+                    map:dis [::diff/nil ::diff/nil] comparison problem))
 
 (defn stack? [problem]
   (boolean (seq (:stack problem))))
 
 (defn better? [p0 p1]
-  (neg? (compare (into [(stack? p0) (:depth p0)] (search/priority p0))
-                 (into [(stack? p1) (:depth p1)] (search/priority p1)))))
+  (let [stack-0? (stack? p0)
+        stack-1? (stack? p1)]
+    (neg? (compare (into [stack-0? (:costs p0) (if stack-0? (:depth p0) 1)]
+                         (search/priority p0))
+                   (into [stack-1? (:costs p0) (if stack-1? (:depth p1) 1)]
+                         (search/priority p1))))))
 
 (defn choose-better [defender challenger]
   (if (better? challenger defender)
@@ -249,9 +283,7 @@
                  [s/ALL-WITH-META p]))))
 
 (defn prepare [x]
-  (s/transform coll-walker+meta-nav
-               add-count-meta
-               x))
+  (s/transform coll-walker+meta-nav add-count-meta x))
 
 (defn equal-star-problem [left right]
   (let [left* (prepare left)

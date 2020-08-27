@@ -17,8 +17,8 @@
   (let [{[left-source right-source] :source :as best-solution}
         (matcher/choose-best problem (:best problem))]
     (vec (sort rank (map (fn [[left-path right-path]]
-                           [(s/select-first (diff/path->navigators diff/left-navs left-path) left-source)
-                            (s/select-first (diff/path->navigators diff/right-navs right-path) right-source)])
+                           [(s/select-first (diff/path->navigators diff/navs left-path) left-source)
+                            (s/select-first (diff/path->navigators diff/navs right-path) right-source)])
                          (:diffs best-solution))))))
 
 (deftest solve-test
@@ -46,20 +46,20 @@
              (search/parallel-depth-first-search 2 2)
              (solve))))
 
-  (is (= (list [[[::diff/nil 1]] [[:index 1]]]
-               [[[::diff/nil 2]] [[:index 2]]])
+  (is (= [[[[:index 2 :before]] [[:index 2]]]
+          [[[:index 1 :before]] [[:index 1]]]]
          (-> (matcher/equal-star-problem [1]
                                          [1 2 3])
              (search/parallel-depth-first-search 2 2)
              (diff-paths))))
 
-  (is (= (list [[[:index 0]]
-                [[:index 0]]])
+  (is (= (list [[[:index 0]] [[:index 0]]])
          (-> (matcher/equal-star-problem [nil 1] [0 1])
              (search/parallel-depth-first-search 2 2)
              (diff-paths))))
 
-  (is (= (list [[[:set 2]] [[::diff/nil ::diff/nil]]])
+  (is (= (list [[[:set 2]]
+                [[:set :me.lomin.chatda.diff/nil]]])
          (-> (matcher/equal-star-problem #{1 2} #{1})
              (search/parallel-depth-first-search 2 2)
              (diff-paths))))
@@ -243,7 +243,32 @@
              {0 1, -1 0}
              {:chan-size   1
               :parallelism 1
-              :timeout     1000}))))
+              :timeout     1000})))
+
+  (let [a [[:x 1 :y :z] [:x :y] :c :d]
+        b [[:x :y :z] [:x 1 :y :z] :c :d]]
+    (is (= [(->Insertion [:x :y :z])
+            [:x 1 :y :z]
+            (->Deletion [:x :y])
+            :c :d]
+           (diff1/diff a b)))
+    (is (= [[:x (->Deletion 1) :y :z]
+            [:x (->Insertion 1) :y (->Insertion :z)]
+            :c
+            :d]
+           (=* a b))))
+
+  (is (= [(->Deletion :b)
+          :a
+          (->Mismatch :x :y)]
+         (=* [:b :a :x]
+             [:a :y])))
+
+  (is (= [(->Insertion :b)
+          :a
+          (->Mismatch :y :x)]
+         (=* [:a :y]
+             [:b :a :x]))))
 
 (deftest prepare-test
   (is (= 22
@@ -302,21 +327,49 @@
                                (gen/set inner-gen)
                                (gen/map inner-gen inner-gen)])))
 
+(def seq-containers (fn [inner-gen]
+                      (gen/one-of [(gen/list inner-gen)
+                                   (gen/vector inner-gen)])))
+
 (def scalars (gen/frequency [[10 gen/simple-type-printable-equatable]
                              [1 (gen/return nil)]]))
 
 (defn insertion? [x]
   (instance? lambdaisland.deep_diff.diff.Insertion x))
 
+(defn =' [a b & options]
+  (let [result (as-> (matcher/equal-star-problem a b) $
+                     (apply search/parallel-depth-first-search $ (or (seq options)
+                                                                     '({}))))]
+    (as-> result $
+          (matcher/choose-best $ (:best $))
+          (assoc $ :solution (:solution result)))))
+
+(def failure-parallel nil)
+(test/defspec end-2-end-generative-parallel-test
+         {:num-tests 20}
+         (prop/for-all [chan-size (gen/fmap inc gen/nat)
+                        parallelism (gen/fmap inc gen/nat)
+                        left (gen/recursive-gen containers scalars)
+                        right (gen/recursive-gen containers scalars)]
+           (let [d (=* left right {:chan-size   chan-size
+                                   :parallelism parallelism
+                                   :timeout     1000})]
+             (or (= d left)
+                 (and (or (insertion? d) (= left (left-undiff d))))
+                 (and (def failure-parallel [left right d])
+                      false)))))
+
+(def failure nil)
 (test/defspec end-2-end-generative-test
-  {:num-tests 100}
-  (prop/for-all [chan-size (gen/fmap inc gen/nat)
-                 parallelism (gen/fmap inc gen/nat)
-                 left (gen/recursive-gen containers scalars)
-                 right (gen/recursive-gen containers scalars)]
-    (let [d (=* left right {:chan-size   chan-size
-                            :parallelism parallelism
-                            :timeout     1000})]
+  {:num-tests 20}
+  (prop/for-all [left (gen/recursive-gen seq-containers scalars)
+                 right (gen/recursive-gen seq-containers scalars)]
+    (let [d (=* left right {:chan-size   1
+                            :parallelism 1
+                            :timeout     100})]
       (or (= d left)
           (and (or (insertion? d) (= left (left-undiff d))))
-          (prn (= d left) (= left (left-undiff d)) d left right)))))
+          (and (def failure [left right d])
+               false)))))
+

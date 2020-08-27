@@ -55,23 +55,27 @@
                                (reverse left-path))
                        tree)))
 
-(let [common-navs {:set   #(s/set-elem %)
-                   :m-key #(s/map-key %)
-                   :m-val #(s/keypath %)
-                   :index #(s/nthpath %)}]
-  (def left-navs
-    (assoc common-navs ::nil (constantly s/AFTER-ELEM)))
-  (def right-navs
-    (assoc common-navs ::nil (constantly (s/view (constantly ::nil))))))
+(defn seq-nav
+  ([index] (s/nthpath index))
+  ([index position & _]
+   (case position
+     :after s/AFTER-ELEM
+     :before (s/before-index index)
+     :nil (s/view (constantly ::nil)))))
 
-(defn path-segment->navigator [navigator-mapping [tag v]]
-  (if (= v ::nil)
+(def navs {:set   #(s/set-elem %)
+           :m-key #(s/map-key %)
+           :m-val #(s/keypath %)
+           :index seq-nav})
+
+(defn path-segment->navigator [navigator-mapping [tag & args]]
+  (if (= args '(::nil))
     (s/view (constantly ::nil))
-    ((navigator-mapping tag) v)))
+    (apply (navigator-mapping tag) args)))
 
 (defn node-diff-transformer [[_ path-segment children]]
   (if (seq path-segment)
-    [(path-segment->navigator left-navs path-segment)
+    [(path-segment->navigator navs path-segment)
      (apply s/multi-path children)]
     (apply s/multi-path noop-terminal-nav children)))
 
@@ -81,7 +85,7 @@
   (mapv (partial path-segment->navigator navigator-mapping) path))
 
 (defn leaf-diff-transformer [[_ right-path] right-source]
-  (let [right (s/select-first (path->navigators right-navs right-path)
+  (let [right (s/select-first (path->navigators navs right-path)
                               right-source)]
     (s/terminal (fn [left]
                   (cond
@@ -99,7 +103,7 @@
 
 (defn diff [paths [left-source right-source]]
   (as-> paths $
-        ;(sort compare-paths $)
+        (sort compare-paths $)
         (reduce grow-path-tree root-node $)
         (path-tree->diff-transformer right-source $)
         (s/multi-transform $ left-source)))
