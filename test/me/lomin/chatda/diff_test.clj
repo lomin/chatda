@@ -6,20 +6,23 @@
   (is (= [[[[:m-val #{3}]] [[:m-val #{1 2}]]]
           [[[:m-key #{3}] [:set 3]] [[:set 1]]]]
          (sort diff/compare-paths
-               #{[[[:m-key #{3}] [:set 3]] [[:set 1]]]
-                 [[[:m-val #{3}]] [[:m-val #{1 2}]]]})))
+               (list [[[:m-key #{3}] [:set 3]] [[:set 1]]]
+                     [[[:m-val #{3}]] [[:m-val #{1 2}]]]))))
 
   (is (= [[[[:m-val #{3}] [:set 4]] [[:m-val #{1 2}] [:set 3]]]
           [[[:m-key #{3}] [:set 3]] [[:m-key #{1 2}] [:set 1]]]]
          (sort diff/compare-paths
-               #{[[[:m-key #{3}] [:set 3]] [[:m-key #{1 2}] [:set 1]]]
-                 [[[:m-val #{3}] [:set 4]] [[:m-val #{1 2}] [:set 3]]]})))
+               (list [[[:m-key #{3}] [:set 3]] [[:m-key #{1 2}] [:set 1]]]
+                     [[[:m-val #{3}] [:set 4]] [[:m-val #{1 2}] [:set 3]]]))))
 
   (is (= [[[[::diff/nil]] [[:index 1]]]
           [[[::diff/nil]] [[:index 2]]]]
          (sort diff/compare-paths
-               #{[[[::diff/nil]] [[:index 1]]]
-                 [[[::diff/nil]] [[:index 2]]]}))))
+               (list [[[::diff/nil]] [[:index 1]]]
+                     [[[::diff/nil]] [[:index 2]]]))
+         (sort diff/compare-paths
+               (list [[[::diff/nil]] [[:index 2]]]
+                     [[[::diff/nil]] [[:index 1]]])))))
 
 (deftest grow-path-tree-test
   (is (= [::diff/node [] [[::diff/node [:m-val #{3}] [[::diff/leaf [[:m-val #{1 2}]]]]]]]
