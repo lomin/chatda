@@ -253,6 +253,7 @@
     (update other :best choose-best other this (:best this)))
   search/Prioritizable
   (priority [this] [(complete-costs this)
+                    (:depth this)
                     (hash (:diffs this))]))
 
 (def meta-count-xf
