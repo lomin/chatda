@@ -16,11 +16,11 @@
          (if (= ~expected result#)
            (clojure-test/do-report {:type     :pass, :message ~msg,
                                     :expected '~form,
-                                    :actual (cons ~pred values#)})
+                                    :actual   (cons ~pred values#)})
            (clojure-test/do-report {:type     :fail, :message ~msg,
                                     :expected '~form,
-                                    :actual (list '~'not
-                                                  (list '=* ~expected result#))}))
+                                    :actual   (list '~'not
+                                                    (list '=* ~expected result#))}))
          result#))))
 
 (defmethod kaocha.report/print-expr '=* [m]
