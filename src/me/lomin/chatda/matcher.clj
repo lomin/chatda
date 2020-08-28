@@ -200,10 +200,8 @@
 (defn better? [p0 p1]
   (let [stack-0? (stack? p0)
         stack-1? (stack? p1)]
-    (neg? (compare (into [stack-0? (:costs p0) (if stack-0? (:depth p0) 1)]
-                         (search/priority p0))
-                   (into [stack-1? (:costs p0) (if stack-1? (:depth p1) 1)]
-                         (search/priority p1))))))
+    (neg? (compare [stack-0? (:costs p0) (if stack-0? (:depth p0) 1)]
+                   [stack-1? (:costs p1) (if stack-1? (:depth p1) 1)]))))
 
 (defn choose-better [defender challenger]
   (if (better? challenger defender)
