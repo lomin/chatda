@@ -234,7 +234,7 @@
                           :parallelism 1
                           :timeout     1000})))
 
-  (is (= {(->Mismatch 0 -1) 0}
+  (is (= {0 (->Mismatch 0 1)}
          (=* {0 0}
              {0 1, -1 0}
              {:chan-size   1

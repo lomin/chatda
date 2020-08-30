@@ -33,10 +33,14 @@
 (defn priority-comparator [compare]
   (fn [a b] (compare (priority a) (priority b))))
 
-(defn priority-queue [^long n ^java.util.Comparator compare]
-  (new PriorityQueueBuffer n
-       (new java.util.PriorityQueue n
-            ^java.util.Comparator (priority-comparator compare))))
+(defn priority-queue
+  ([^long n ^java.util.Comparator compare]
+   (priority-queue n compare nil))
+  ([^long n ^java.util.Comparator compare init]
+   (new PriorityQueueBuffer n
+        (cond-> (new java.util.PriorityQueue (max 1 n)
+                     ^java.util.Comparator (priority-comparator compare))
+                (some? init) (doto (.add init))))))
 
 (defprotocol ExhaustiveSearch
   (stop [this]))
@@ -52,7 +56,7 @@
   Object (combine [_ other] other)
   nil (combine [_ other] other))
 
-(defmacro combine->offer->recur [problem heap chan]
+(defmacro combine->offer->recur [problem heap chan parallel?]
   `(if (seq ~heap)
      (let [$first# (combine ~problem (first (peek ~heap)))
            $next# (pop ~heap)
@@ -60,20 +64,20 @@
        (if (async-protocols/closed? ~chan)
          $first#
          (recur $first#
-                (if (and spawn# (async/offer! ~chan spawn#))
+                (if (and ~parallel? spawn# (async/offer! ~chan spawn#))
                   (pop $next#)
                   $next#))))
      ~problem))
 
-(defn add-async-worker-to [worker-pool problem xform chan compare]
+(defn add-async-worker-to [worker-pool problem xform chan compare parallel?]
   (->> (async/go-loop [p problem
                        heap (pm/priority-map-by compare)]
          (if-let [$children (seq (children p))]
            (let [next-heap (into heap xform $children)]
-             (combine->offer->recur p next-heap chan))
+             (combine->offer->recur p next-heap chan parallel?))
            (if-let [result (stop p)]
              result
-             (combine->offer->recur p heap chan))))
+             (combine->offer->recur p heap chan parallel?))))
        (conj worker-pool)))
 
 (defn transduce-1
@@ -102,18 +106,19 @@
 
 (defn rec:parallel-depth-first-search
   [root-problem xform [main-chan timeout-chan :as control-chans] parallelism compare]
-  (loop [problem root-problem
-         worker-pool []]
-    (let [[$val ch] (next-channel-value worker-pool control-chans parallelism)]
-      (cond
-        (reduced? $val) @$val
-        (= ch main-chan) (recur problem
-                                (add-async-worker-to worker-pool
-                                                     $val xform main-chan compare))
-        (= ch :default) problem
-        (= ch timeout-chan) problem
-        :else (recur (combine problem $val)
-                     (remove-worker-from worker-pool ch))))))
+  (let [parallel? (< 1 parallelism)]
+    (loop [problem root-problem
+           worker-pool []]
+      (let [[$val ch] (next-channel-value worker-pool control-chans parallelism)]
+        (cond
+          (reduced? $val) @$val
+          (= ch main-chan) (recur problem
+                                  (add-async-worker-to worker-pool
+                                                       $val xform main-chan compare parallel?))
+          (= ch :default) problem
+          (= ch timeout-chan) problem
+          :else (recur (combine problem $val)
+                       (remove-worker-from worker-pool ch)))))))
 
 (def priority-xf (map (fn [x] [x (priority x)])))
 (def depth-first-comparator (fn [a b] (compare b a)))
@@ -125,12 +130,11 @@
             parallelism 4}}]
    (let [xform (xform init)
          root-problem (transduce-1 xform init)
-         chan (async/chan (priority-queue chan-size compare))
+         chan (async/chan (priority-queue chan-size compare root-problem))
          close-chan-future (when timeout (future (Thread/sleep timeout)
                                                  (async/close! chan)))
          control-chans (cond-> [chan]
                                timeout (conj (async/timeout timeout)))]
-     (async/>!! chan root-problem)
      (let [result (rec:parallel-depth-first-search root-problem
                                                    (comp xform priority-xf)
                                                    control-chans
