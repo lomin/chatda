@@ -303,4 +303,6 @@
    (as-> (equal-star-problem a b) $
          (search/parallel-depth-first-search $ options)
          (choose-best $ (:best $))
-         (diff/diff (:diffs $) (:source $)))))
+         (if (seq (:stack $))
+           :timeout
+           (diff/diff (:diffs $) (:source $))))))

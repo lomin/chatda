@@ -327,10 +327,6 @@
                                (gen/set inner-gen)
                                (gen/map inner-gen inner-gen)])))
 
-(def seq-containers (fn [inner-gen]
-                      (gen/one-of [(gen/list inner-gen)
-                                   (gen/vector inner-gen)])))
-
 (def scalars (gen/frequency [[10 gen/simple-type-printable-equatable]
                              [1 (gen/return nil)]]))
 
@@ -338,30 +334,38 @@
   (instance? lambdaisland.deep_diff.diff.Insertion x))
 
 (def failure-parallel nil)
+(def end-2-end-generative-parallel-test nil)
 (test/defspec end-2-end-generative-parallel-test
-         {:num-tests 20}
-         (prop/for-all [chan-size (gen/fmap inc gen/nat)
-                        parallelism (gen/fmap inc gen/nat)
-                        left (gen/recursive-gen containers scalars)
-                        right (gen/recursive-gen containers scalars)]
-           (let [d (=* left right {:chan-size   chan-size
-                                   :parallelism parallelism
-                                   :timeout     1000})]
-             (or (= d left)
-                 (and (or (insertion? d) (= left (left-undiff d))))
-                 (and (def failure-parallel [left right d])
-                      false)))))
-
-(def failure nil)
-(test/defspec end-2-end-generative-test
-  {:num-tests 20}
-  (prop/for-all [left (gen/recursive-gen seq-containers scalars)
-                 right (gen/recursive-gen seq-containers scalars)]
-    (let [d (=* left right {:chan-size   1
-                            :parallelism 1
+  {:num-tests 100}
+  (prop/for-all [chan-size (gen/fmap inc gen/nat)
+                 parallelism (gen/fmap inc gen/nat)
+                 left (gen/recursive-gen containers scalars)
+                 right (gen/recursive-gen containers scalars)]
+    (let [d (=* left right {:chan-size   chan-size
+                            :parallelism parallelism
                             :timeout     100})]
-      (or (= d left)
+      (or (= d :timeout)
+          (= d left)
           (and (or (insertion? d) (= left (left-undiff d))))
-          (and (def failure [left right d])
+          (and (def failure-parallel [left right d])
                false)))))
 
+(def timeout-failure nil)
+(def timeout-test-test nil)
+(test/defspec timeout-test-test
+  {:num-tests 100}
+  (prop/for-all [chan-size (gen/no-shrink (gen/fmap inc gen/nat))
+                 parallelism (gen/no-shrink (gen/fmap inc gen/nat))
+                 timeout (gen/no-shrink (gen/choose 10 500))
+                 left (gen/no-shrink (gen/recursive-gen containers scalars))
+                 right (gen/no-shrink (gen/recursive-gen containers scalars))]
+    (let [start-time (. System (currentTimeMillis))
+          d (=* left right {:chan-size   chan-size
+                            :parallelism parallelism
+                            :timeout     timeout})
+          end-time (. System (currentTimeMillis))
+          duration (- end-time start-time)
+          accepted-duration (* timeout 2)]
+      (or (< duration accepted-duration)
+          (and (def timeout-failure [duration accepted-duration d])
+               false)))))
