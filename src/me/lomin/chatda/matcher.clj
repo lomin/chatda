@@ -241,7 +241,7 @@
       (map update-path
            (children comparison (update problem :stack pop)))))
   (xform [_]
-    (comp (remove #(< @(:best-costs %) (complete-costs %)))
+    (comp (remove #(<= @(:best-costs %) (complete-costs %)))
           (map #(update % :depth (fnil dec 0)))))
   search/ExhaustiveSearch
   (stop [{:keys [diffs best-costs] :as this}]
