@@ -336,7 +336,9 @@
 (def failure-parallel nil)
 (def end-2-end-generative-parallel-test nil)
 (test/defspec end-2-end-generative-parallel-test
-  {:num-tests 100}
+  {:num-tests 100
+   ;:seed 1599306615414
+   }
   (prop/for-all [chan-size (gen/fmap inc gen/nat)
                  parallelism (gen/fmap inc gen/nat)
                  left (gen/recursive-gen containers scalars)
@@ -347,7 +349,9 @@
       (or (= d :timeout)
           (= d left)
           (and (or (insertion? d) (= left (left-undiff d))))
-          (and (def failure-parallel [left right d])
+          (and (def failure-parallel [left right d {:chan-size   chan-size
+                                                    :parallelism parallelism
+                                                    :timeout     100}])
                false)))))
 
 (def timeout-failure nil)
@@ -365,7 +369,7 @@
                             :timeout     timeout})
           end-time (. System (currentTimeMillis))
           duration (- end-time start-time)
-          accepted-duration (* timeout 2)]
+          accepted-duration (* timeout 1.5)]
       (or (< duration accepted-duration)
-          (and (def timeout-failure [duration accepted-duration d])
+          (and (def timeout-failure [duration accepted-duration timeout d])
                false)))))

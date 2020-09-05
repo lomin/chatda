@@ -101,26 +101,32 @@
   (filterv #(not= % worker) worker-pool))
 
 (defn next-channel-value
-  [worker-pool [problem-bus :as control-chans] parallelism]
+  [worker-pool [problem-bus :as control-chans] parallelism time-left?]
   (if (<= parallelism (count worker-pool))
     (async/alts!! worker-pool)
     (if (seq worker-pool)
-      (async/alts!! (conj worker-pool problem-bus))
+      (if (time-left?)
+        (async/alts!! (conj worker-pool problem-bus))
+        (async/alts!! worker-pool :default nil))
       (async/alts!! control-chans :default nil))))
 
 (defn rec:parallel-depth-first-search
-  [root-problem xform [problem-bus :as control-chans] parallelism compare]
+  [root-problem xform [problem-bus :as control-chans] parallelism compare time-left?]
   (let [parallel? (< 1 parallelism)]
     (loop [problem root-problem
            worker-pool []]
-      (let [[$val ch] (next-channel-value worker-pool control-chans parallelism)]
+      (let [[$val ch] (next-channel-value worker-pool control-chans parallelism time-left?)]
         (cond
+          (nil? $val) problem
           (reduced? $val) @$val
           (instance? Throwable $val) (throw $val)
           (= ch problem-bus) (recur problem
                                     (add-async-worker-to worker-pool
-                                                         $val xform problem-bus compare parallel?))
-          (= ch :default) problem
+                                                         $val
+                                                         xform
+                                                         problem-bus
+                                                         compare
+                                                         parallel?))
           :else (recur (combine problem $val)
                        (remove-worker-from worker-pool ch)))))))
 
@@ -134,6 +140,11 @@
            (throw timeout-exception)
            x))))
 
+(defn time-left-fn [timeout-future]
+  (if timeout-future
+    #(not (future-done? timeout-future))
+    (constantly true)))
+
 (defn parallel-depth-first-search
   ([{:keys [compare] :or {compare depth-first-comparator} :as init}
     {:keys [chan-size parallelism timeout]
@@ -143,17 +154,20 @@
          root-problem (transduce-1 xform init)
          problem-bus (async/chan (priority-queue chan-size compare root-problem))
          control-chans [problem-bus]
-         close-chan-future (when timeout (future (Thread/sleep timeout)))
+         timeout-future (when timeout (future (Thread/sleep timeout)
+                                              (async/close! problem-bus)))
          search-xf (cond-> (list xform priority-xf)
-                           timeout (conj (timeout-xf close-chan-future))
+                           timeout (conj (timeout-xf timeout-future))
                            :always (->> (apply comp)))
+         time-left? (time-left-fn timeout-future)
          result (rec:parallel-depth-first-search root-problem
                                                  search-xf
                                                  control-chans
                                                  parallelism
-                                                 compare)]
+                                                 compare
+                                                 time-left?)]
      (async/close! problem-bus)
-     (when timeout (future-cancel close-chan-future))
+     (when timeout (future-cancel timeout-future))
      result))
   ([init chan-size parallelism]
    (parallel-depth-first-search init {:chan-size   chan-size
