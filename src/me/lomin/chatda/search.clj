@@ -68,21 +68,20 @@
                 $next#)))
      ~problem))
 
-(defn add-async-worker-to [worker-pool problem xform problem-bus compare parallel?]
-  (->> (async/go
-         (try
-           (loop [p problem
-                  heap (pm/priority-map-by compare)]
-             (if-let [$children (seq (children p))]
-               (if-let [next-heap (try (into heap xform $children)
-                                       (catch TimeoutException _))]
-                 (combine->offer->recur p next-heap problem-bus parallel?)
-                 p)
-               (if-let [result (stop p)]
-                 result
-                 (combine->offer->recur p heap problem-bus parallel?))))
-           (catch Exception e e)))
-       (conj worker-pool)))
+(defn async-worker [xform problem-bus empty-heap parallel? problem]
+  (async/go
+    (try
+      (loop [p problem
+             heap (empty-heap)]
+        (if-let [$children (seq (children p))]
+          (if-let [next-heap (try (into heap xform $children)
+                                  (catch TimeoutException _))]
+            (combine->offer->recur p next-heap problem-bus parallel?)
+            p)
+          (if-let [result (stop p)]
+            result
+            (combine->offer->recur p heap problem-bus parallel?))))
+      (catch Exception e e))))
 
 (defn transduce-1
   "apply a transducer on a single value"
@@ -101,34 +100,30 @@
   (filterv #(not= % worker) worker-pool))
 
 (defn next-channel-value
-  [worker-pool [problem-bus :as control-chans] parallelism time-left?]
+  [worker-pool control-chans parallelism time-left?]
   (if (<= parallelism (count worker-pool))
     (async/alts!! worker-pool)
     (if (seq worker-pool)
       (if (time-left?)
-        (async/alts!! (conj worker-pool problem-bus))
+        (async/alts!! (conj worker-pool (peek control-chans)))
         (async/alts!! worker-pool :default nil))
       (async/alts!! control-chans :default nil))))
 
 (defn rec:parallel-depth-first-search
-  [root-problem xform [problem-bus :as control-chans] parallelism compare time-left?]
-  (let [parallel? (< 1 parallelism)]
-    (loop [problem root-problem
-           worker-pool []]
-      (let [[$val ch] (next-channel-value worker-pool control-chans parallelism time-left?)]
-        (cond
-          (nil? $val) problem
-          (reduced? $val) @$val
-          (instance? Throwable $val) (throw $val)
-          (= ch problem-bus) (recur problem
-                                    (add-async-worker-to worker-pool
-                                                         $val
-                                                         xform
-                                                         problem-bus
-                                                         compare
-                                                         parallel?))
-          :else (recur (combine problem $val)
-                       (remove-worker-from worker-pool ch)))))))
+  [root-problem [problem-bus :as control-chans] parallelism time-left? solve-async]
+  (loop [problem root-problem
+         worker-pool []]
+    (let [[$val ch] (next-channel-value worker-pool
+                                        control-chans parallelism time-left?)]
+      (cond
+        (nil? $val) problem
+        (reduced? $val) @$val
+        (instance? Throwable $val) (throw $val)
+        (= ch problem-bus) (recur problem
+                                  (conj worker-pool
+                                        (solve-async $val)))
+        :else (recur (combine problem $val)
+                     (remove-worker-from worker-pool ch))))))
 
 (def depth-first-comparator (fn [a b] (compare b a)))
 (def priority-xf (map (fn [x] [x (priority x)])))
@@ -160,12 +155,17 @@
                            timeout (conj (timeout-xf timeout-future))
                            :always (->> (apply comp)))
          time-left? (time-left-fn timeout-future)
+         empty-heap (partial pm/priority-map-by compare)
+         solve-async (partial async-worker
+                              search-xf
+                              problem-bus
+                              empty-heap
+                              (< 1 parallelism))
          result (rec:parallel-depth-first-search root-problem
-                                                 search-xf
                                                  control-chans
                                                  parallelism
-                                                 compare
-                                                 time-left?)]
+                                                 time-left?
+                                                 solve-async)]
      (async/close! problem-bus)
      (when timeout (future-cancel timeout-future))
      result))
