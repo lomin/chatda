@@ -51,21 +51,28 @@
   nil (stop [this] (reduced this)))
 
 (defprotocol Combinable
-  (combine [this other]))
+  (combine [this other])
+  (combine-async [this other]))
 
 (extend-protocol Combinable
-  Object (combine [_ other] other)
-  nil (combine [_ other] other))
+  Object
+  (combine [_ other] other)
+  (combine-async [this other] (combine this other))
+  nil
+  (combine [_ other] other)
+  (combine-async [this other] (combine this other)))
 
 (defmacro combine->offer->recur [problem heap chan parallel?]
   `(if (seq ~heap)
      (let [$first# (combine ~problem (first (peek ~heap)))
            $next# (pop ~heap)
            [spawn#] (peek $next#)]
-       (recur $first#
-              (if (and ~parallel? spawn# (async/offer! ~chan spawn#))
-                (pop $next#)
-                $next#)))
+       (if (async-protocols/closed? ~chan)
+         $first#
+         (recur $first#
+                (if (and ~parallel? spawn# (async/offer! ~chan spawn#))
+                  (pop $next#)
+                  $next#))))
      ~problem))
 
 (defn async-worker [xform problem-bus empty-heap parallel? problem]
@@ -122,7 +129,7 @@
         (= ch problem-bus) (recur problem
                                   (conj worker-pool
                                         (solve-async $val)))
-        :else (recur (combine problem $val)
+        :else (recur (combine-async problem $val)
                      (remove-worker-from worker-pool ch))))))
 
 (def depth-first-comparator (fn [a b] (compare b a)))
@@ -147,7 +154,8 @@
             parallelism 4}}]
    (let [xform (xform init)
          root-problem (transduce-1 xform init)
-         problem-bus (async/chan (priority-queue chan-size compare root-problem))
+         problem-bus (async/chan (priority-queue chan-size compare root-problem)
+                                 xform)
          control-chans [problem-bus]
          timeout-future (when timeout (future (Thread/sleep timeout)
                                               (async/close! problem-bus)))

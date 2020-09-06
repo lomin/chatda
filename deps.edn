@@ -7,6 +7,7 @@
  :paths   ["src"]
  :aliases {:test  {:extra-paths ["test" "resources"]
                    :extra-deps  {org.clojure/test.check {:mvn/version "1.0.0"}
-                                 criterium              {:mvn/version "0.4.6"}}}
+                                 criterium              {:mvn/version "0.4.6"}
+                                 com.clojure-goes-fast/clj-async-profiler {:mvn/version "0.4.1"}}}
            :nREPL {:extra-deps
                    {nrepl/nrepl {:mvn/version "0.7.0"}}}}}

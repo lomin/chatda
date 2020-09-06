@@ -6,4 +6,9 @@
 (deftest min-heap-test
   (is (= [:c [4 1]]
          (peek (pm/priority-map-by search/depth-first-comparator
-                                   :a [3 2] :b [2 3] :c [4 1] :d [4 0])))))
+                                   :a [3 2] :b [2 3] :c [4 1] :d [4 0]))))
+
+  (is (= [[:a [3 2]] [:b [2 3]]]
+         (sequence (remove (fn [[_ [a]]] (<= 4 a))
+                           (pm/priority-map-by search/depth-first-comparator
+                                                                 :a [3 2] :b [2 3] :c [4 1] :d [4 0]))))))

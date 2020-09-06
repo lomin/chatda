@@ -11,15 +11,13 @@
             [clojure.test.check.properties :as prop]))
 
 (defn diff-paths [problem]
-  (:diffs (matcher/choose-best problem (:best problem))))
+  (:diffs problem))
 
-(defn solve [problem]
-  (let [{[left-source right-source] :source :as best-solution}
-        (matcher/choose-best problem (:best problem))]
-    (vec (sort rank (map (fn [[left-path right-path]]
-                           [(s/select-first (diff/path->navigators diff/navs left-path) left-source)
-                            (s/select-first (diff/path->navigators diff/navs right-path) right-source)])
-                         (:diffs best-solution))))))
+(defn solve [{[left-source right-source] :source :as problem}]
+  (vec (sort rank (map (fn [[left-path right-path]]
+                         [(s/select-first (diff/path->navigators diff/navs left-path) left-source)
+                          (s/select-first (diff/path->navigators diff/navs right-path) right-source)])
+                       (:diffs problem)))))
 
 (deftest solve-test
 

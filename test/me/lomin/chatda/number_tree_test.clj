@@ -31,7 +31,9 @@
   (stop [_] false)
   p/Combinable
   (combine [this other]
-    (+=cnt:count this other)))
+    (+=cnt:count this other))
+  (combine-async [this other]
+    (p/combine this other)))
 
 (defn cnt:count-root [branch-factor max-size]
   (map->CountNumberTreeSearch {:value    0

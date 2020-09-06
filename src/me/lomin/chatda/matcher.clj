@@ -38,9 +38,13 @@
                  (output/format-doc actual
                                     printer)))]))))
 
+(def atom-partition-set #{:atom})
+
 (defn equality-partition-set [[a b] _]
-  (hash-set (data/equality-partition a)
-            (data/equality-partition b)))
+  (if (= a b)
+    atom-partition-set
+    (hash-set (data/equality-partition a)
+              (data/equality-partition b))))
 
 (defmulti children equality-partition-set)
 
@@ -200,18 +204,13 @@
 (defn better? [p0 p1]
   (let [stack-0? (stack? p0)
         stack-1? (stack? p1)]
-    (neg? (compare [stack-0? (:costs p0) (if stack-0? (:depth p0) 1)]
-                   [stack-1? (:costs p1) (if stack-1? (:depth p1) 1)]))))
+    (neg? (compare [stack-0? (:costs p0)]
+                   [stack-1? (:costs p1)]))))
 
 (defn choose-better [defender challenger]
   (if (better? challenger defender)
     challenger
     defender))
-
-(defn choose-best [& problems]
-  (when-let [ps (seq (filter some? problems))]
-    (-> (reduce choose-better ps)
-        (dissoc :best))))
 
 (defn push-path [problem [left-path right-path]]
   (-> problem
@@ -234,27 +233,31 @@
         p)
       p)))
 
-(defrecord EqualStarProblem []
+(def child-xf (comp (map update-path)
+                    (map #(update % :depth (fnil dec 0)))))
+
+(defrecord EqualStarProblem [best-costs]
   search/Searchable
   (children [{stack :stack :as problem}]
-    (when-let [comparison (peek stack)]
-      (map update-path
-           (children comparison (update problem :stack pop)))))
+    (when-let [comparison (and (< (complete-costs problem) @best-costs)
+                               (peek stack))]
+      (sequence child-xf
+                (children comparison (update problem :stack pop)))))
   (xform [_]
-    (comp (remove #(<= @(:best-costs %) (complete-costs %)))
-          (map #(update % :depth (fnil dec 0)))))
+    (remove #(<= @best-costs (complete-costs %))))
   search/ExhaustiveSearch
-  (stop [{:keys [diffs best-costs] :as this}]
-    (swap! best-costs min (:costs this))
-    (cond-> this
-            (empty? diffs) (reduced)))
+  (stop [{:keys [diffs] :as this}]
+    (when (not (stack? this))
+      (swap! best-costs min (:costs this))
+      (cond-> this
+              (empty? diffs) (reduced))))
   search/Combinable
-  (combine [this other]
-    (update other :best choose-best other this (:best this)))
+  (combine [_ other] other)
+  (combine-async [this other]
+    (choose-better this other))
   search/Prioritizable
   (priority [this] [(complete-costs this)
-                    (:depth this)
-                    (hash (:diffs this))]))
+                    (:depth this)]))
 
 (def meta-count-xf
   (map (comp (fnil identity 1) ::count meta)))
@@ -302,7 +305,6 @@
   ([a b options]
    (as-> (equal-star-problem a b) $
          (search/parallel-depth-first-search $ options)
-         (choose-best $ (:best $))
          (if (seq (:stack $))
            :timeout
            (diff/diff (:diffs $) (:source $))))))
