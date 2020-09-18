@@ -39,7 +39,7 @@
 
 (def path-internals? #{::push ::pop})
 
-(defn equality-partition-set [[a b] _]
+(defn equality-partition [[a b] _]
   (or (cond
         (= a b) :atom
         (sequential? a) (when (sequential? b) :sequential)
@@ -51,12 +51,12 @@
         :else :atom)
       :default))
 
-(defmulti children equality-partition-set)
+(defmulti children equality-partition)
 
 (defn heuristic-dispatch [[a :as comparison]]
   (if (path-internals? a)
     0
-    (equality-partition-set comparison nil)))
+    (equality-partition comparison nil)))
 
 (defmulti heuristic heuristic-dispatch)
 
