@@ -303,17 +303,17 @@
 (defn equal-star-problem [left right]
   (let [left* (prepare left)
         right* (prepare right)]
-    (map->EqualStarProblem {:compare    compare
-                            :source     [left* right*]
-                            :stack      (list [left* right*])
-                            :diffs      '()
-                            :depth      0
-                            :costs      0
-                            :left-path  []
-                            :right-path []
-                            :seen       (volatile! #{})
+    (map->EqualStarProblem {:compare        compare
+                            :source         [left* right*]
+                            :stack          (list [left* right*])
+                            :diffs          '()
+                            :depth          0
+                            :costs          0
+                            :left-path      []
+                            :right-path     []
+                            :seen           (volatile! #{})
                             :complete-costs 0
-                            :best-costs (atom Integer/MAX_VALUE)})))
+                            :best-costs     (atom Integer/MAX_VALUE)})))
 
 (defn =*
   ([a b] (=* a b nil))
