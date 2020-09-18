@@ -111,46 +111,40 @@
               [::pop] ~values-0 [::push ~path-0]]
              [[::pop] ~values-0 [::push ~path-0]]))
 
-(defn seq:stack-updates [left-index right-index left right]
+(defn seq:stack-updates-default [left-index right-index left right]
   (stack-updates [[:index left-index] [:index right-index]]
                  [left right]))
 
-(defn seq:update-meta [xs xs-f meta-f & args]
-  (let [xs* (xs-f xs)
-        m (meta xs*)]
-    (with-meta xs* (apply meta-f m args))))
+(defn seq:dis [xs] (with-meta (rest xs) (update (meta xs) ::count-seq rest)))
 
-(defn seq:inc-meta-index [m index]
-  (assoc m ::index (inc index)))
-
-(defn seq:dis [xs]
-  (let [m (update (meta xs) ::count-seq rest)]
-    (with-meta (rest xs) m)))
+(defn seq:stack-updates [[_ index xs] xs-f]
+  (let [xs* (xs-f xs)]
+    (vary-meta xs* assoc ::index (inc index))))
 
 (defn seq:child-default [problem
-                         [left left-index left-seq]
-                         [right right-index right-seq]]
+                         [left left-index :as left-indexed]
+                         [right right-index :as right-indexed]]
   (-> problem
-      (update :stack conj [(seq:update-meta left-seq seq:dis seq:inc-meta-index left-index)
-                           (seq:update-meta right-seq seq:dis seq:inc-meta-index right-index)])
-      (update :stack into (seq:stack-updates left-index right-index left right))))
+      (update :stack conj [(seq:stack-updates left-indexed seq:dis)
+                           (seq:stack-updates right-indexed seq:dis)])
+      (update :stack into (seq:stack-updates-default left-index right-index left right))))
 
 (defn seq:child-delete-first-element [problem
-                                      [left left-index left-seq]
+                                      [left left-index :as left-indexed]
                                       [_ _ right-seq]]
   (-> problem
-      (update :stack conj [(seq:update-meta left-seq seq:dis seq:inc-meta-index left-index)
+      (update :stack conj [(seq:stack-updates left-indexed seq:dis)
                            right-seq])
       (update :diffs conj [(conj (:left-path problem) [:index left-index])
                            (conj (:right-path problem) [:index -1 :nil])])
       (update :costs + (atom-count left))))
 
 (defn seq:child-add-first-element [problem
-                                   [_ left-index left-seq]
-                                   [right right-index right-seq]]
+                                   [_ left-index :as left-indexed]
+                                   [right right-index :as right-indexed]]
   (-> problem
-      (update :stack conj [(seq:update-meta left-seq identity seq:inc-meta-index left-index)
-                           (seq:update-meta right-seq seq:dis seq:inc-meta-index right-index)])
+      (update :stack conj [(seq:stack-updates left-indexed identity)
+                           (seq:stack-updates right-indexed seq:dis)])
       (update :diffs conj [(conj (:left-path problem) [:index left-index :before])
                            (conj (:right-path problem) [:index right-index])])
       (update :costs + (atom-count right))))
