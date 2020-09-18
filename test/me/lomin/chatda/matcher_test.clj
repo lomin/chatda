@@ -1,5 +1,6 @@
 (ns me.lomin.chatda.matcher-test
   (:require [clojure.test :refer :all]
+            [user :as u]
             [me.lomin.chatda.search :as search]
             [me.lomin.chatda.matcher :refer [=*] :as matcher]
             [com.rpl.specter :as s]
@@ -234,14 +235,9 @@
 
   (is (= {0 (->Mismatch 0 1)}
          (=* {0 0}
-             {0 1, -1 0}
+             {0 1, -1 1}
              {:chan-size   1
-              :parallelism 1})
-         (=* {0 0}
-             {0 1, -1 0}
-             {:chan-size   1
-              :parallelism 1
-              :timeout     1000})))
+              :parallelism 1})))
 
   (let [a [[:x 1 :y :z] [:x :y] :c :d]
         b [[:x :y :z] [:x 1 :y :z] :c :d]]
@@ -266,7 +262,11 @@
           :a
           (->Mismatch :y :x)]
          (=* [:a :y]
-             [:b :a :x]))))
+             [:b :a :x])))
+
+  (is (= {[1 (->Mismatch 2 3)] (->Mismatch :b :c)}
+         (=* {(seq (to-array #{1 2})) :b}
+             {(seq (to-array #{1 3})) :c}))))
 
 (deftest prepare-test
   (is (= 22
@@ -275,49 +275,74 @@
                                 5
                                 {{1 2 3 4} {5 6 7 8}}
                                 #{4 5 [6 7]}]}))))
-  (is (= '(1 1 6 11)
+  (is (= '(1 1 11 6)
          (matcher/atom-count-seq
            (matcher/prepare [4
                              5
                              {{1 2 3 4} {5 6 7 8}}
                              #{4 5 [6 7]}])))))
-
+(def heuristic-test nil)
 (deftest heuristic-test
-  (is (= 0 (matcher/heuristic
+  (is (= 0 (matcher/calculate-complete-costs
              (matcher/equal-star-problem 1 1))))
-  (is (= 1 (matcher/heuristic
+  (is (= 1 (matcher/calculate-complete-costs
              (matcher/equal-star-problem 1 2))))
-  (is (= 1 (matcher/heuristic
+  (is (= 1 (matcher/calculate-complete-costs
              (matcher/equal-star-problem #{} {}))))
-  (is (= 4 (matcher/heuristic
+  (is (= 4 (matcher/calculate-complete-costs
              (matcher/equal-star-problem '(1)
                                          (range 5)))))
-  (is (= 6 (matcher/heuristic
+  (is (= 6 (matcher/calculate-complete-costs
              (matcher/equal-star-problem '((1) (1 2 3))
                                          '()))))
-  (is (= 0 (matcher/heuristic
+  (is (= 0 (matcher/calculate-complete-costs
              (matcher/equal-star-problem #{1}
                                          #{3 4}))))
-  (is (= 0 (matcher/heuristic
+  (is (= 0 (matcher/calculate-complete-costs
              (matcher/equal-star-problem #{1 2}
                                          #{3 4}))))
-  (is (= 1 (matcher/heuristic
+  (is (= 1 (matcher/calculate-complete-costs
              (matcher/equal-star-problem #{1 2}
                                          #{3}))))
-  (is (= 4 (matcher/heuristic
+  (is (= 4 (matcher/calculate-complete-costs
              (matcher/equal-star-problem #{(range 5) (range 3)}
                                          #{3}))))
-  (is (= 0 (matcher/heuristic
+  (is (= 0 (matcher/calculate-complete-costs
              (matcher/equal-star-problem {1 2}
                                          {3 4 5 6}))))
-  (is (= 2 (matcher/heuristic
+  (is (= 2 (matcher/calculate-complete-costs
              (matcher/equal-star-problem {3 4 5 6}
                                          {1 2}))))
-
   (is (= 7
-         (matcher/heuristic
+         (matcher/calculate-complete-costs
            (matcher/equal-star-problem {(range 5) 2 3 (range 10)}
-                                       {1 2})))))
+                                       {1 2}))))
+
+  (is (= 1
+         (-> (matcher/equal-star-problem '(1 :y :z) '(:y :z))
+             (matcher/calculate-complete-costs))
+         (as-> (matcher/equal-star-problem [:x 1 :y :z]
+                                           [:x :y :z])
+               $
+               (sequence (search/xform $) (search/children $))
+               (last $)                                     ; default
+               (matcher/calculate-complete-costs $))))
+
+  (is (= 3
+         (as-> (matcher/equal-star-problem [:a :b :c :d]
+                                           [:b :c :d])
+               $
+               (sequence (search/xform $) (search/children $))
+               (first $)                                    ; default
+               (matcher/calculate-complete-costs $))))
+
+  (is (= 1
+         (as-> (matcher/equal-star-problem [:a :b :c :d]
+                                           [:b :c :d])
+               $
+               (sequence (search/xform $) (search/children $))
+               (second $)                                   ; default
+               (matcher/calculate-complete-costs $)))))
 
 (def containers (fn [inner-gen]
                   (gen/one-of [(gen/list inner-gen)

@@ -10,6 +10,9 @@
   (children [self])
   (xform [self]))
 
+(defprotocol AsyncSearchable
+  (xform-async [self]))
+
 (extend-type nil
   Searchable
   (children [_] nil))
@@ -147,19 +150,24 @@
     #(not (future-done? timeout-future))
     (constantly true)))
 
+(defn chan-xform [init]
+  (if (satisfies? AsyncSearchable init)
+    (xform-async init)
+    (xform init)))
+
 (defn parallel-depth-first-search
   ([{:keys [compare] :or {compare depth-first-comparator} :as init}
     {:keys [chan-size parallelism timeout]
      :or   {chan-size   10
             parallelism 4}}]
-   (let [xform (xform init)
-         root-problem (transduce-1 xform init)
+   (let [xf (chan-xform init)
+         root-problem (transduce-1 xf init)
          problem-bus (async/chan (priority-queue chan-size compare root-problem)
-                                 xform)
+                                 xf)
          control-chans [problem-bus]
          timeout-future (when timeout (future (Thread/sleep timeout)
                                               (async/close! problem-bus)))
-         search-xf (cond-> (list xform priority-xf)
+         search-xf (cond-> (list (xform init) priority-xf)
                            timeout (conj (timeout-xf timeout-future))
                            :always (->> (apply comp)))
          time-left? (time-left-fn timeout-future)

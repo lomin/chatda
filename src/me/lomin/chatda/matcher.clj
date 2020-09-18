@@ -1,6 +1,5 @@
 (ns me.lomin.chatda.matcher
   (:require [clojure.test :as clojure-test]
-            [clojure.data :as data]
             [kaocha.report]
             [kaocha.output :as output]
             [me.lomin.chatda.search :as search]
@@ -38,54 +37,62 @@
                  (output/format-doc actual
                                     printer)))]))))
 
-(def atom-partition-set #{:atom})
+(def path-internals? #{::push ::pop})
 
 (defn equality-partition-set [[a b] _]
-  (if (= a b)
-    atom-partition-set
-    (hash-set (data/equality-partition a)
-              (data/equality-partition b))))
+  (or (cond
+        (= a b) :atom
+        (sequential? a) (when (sequential? b) :sequential)
+        (sequential? b) :default
+        (map? a) (when (map? b) :map)
+        (map? b) :default
+        (set? a) (when (set? b) :set)
+        (set? b) :default
+        :else :atom)
+      :default))
 
 (defmulti children equality-partition-set)
 
-(defn heuristic-dispatch [problem]
-  (equality-partition-set (peek (:stack problem)) problem))
+(defn heuristic-dispatch [[a :as comparison]]
+  (if (path-internals? a)
+    0
+    (equality-partition-set comparison nil)))
 
 (defmulti heuristic heuristic-dispatch)
 
-(defn complete-costs [problem]
-  (+ (:costs problem) (heuristic problem)))
+(defn calculate-complete-costs [problem]
+  (+ (:costs problem) (transduce (map heuristic) + (:stack problem))))
 
-(defn atom-count [x] (or (::count (meta x)) 1))
 (defn atom-count-seq [x] (::count-seq (meta x)))
+(defn atom-count [x] (reduce + 1 (atom-count-seq x)))
 
-(defmethod heuristic :default [problem]
-  (atom-count (first (peek (:stack problem)))))
+(defmethod heuristic 0 [comparison]
+  0)
 
-(defmethod heuristic #{:atom} [problem]
-  (let [[left right] (peek (:stack problem))]
-    (if (= left right) 0 1)))
+(defmethod heuristic :default [comparison]
+  (atom-count (first comparison)))
 
-(defmethod heuristic #{:sequential} [problem]
-  (let [[left-xs right-xs :as comparison] (peek (:stack problem))
-        [a-xs b-xs] (if (<= (count left-xs) (count right-xs))
+(defmethod heuristic :atom [[left right]]
+  (if (= left right) 0 1))
+
+(defmethod heuristic :sequential [[left-xs right-xs :as comparison]]
+  (let [[a-xs b-xs] (if (<= (count left-xs) (count right-xs))
                       comparison
                       [right-xs left-xs])
         diff-count (- (count b-xs) (count a-xs))]
-    (transduce (take diff-count) + (atom-count-seq b-xs))))
+    (transduce (take diff-count) + (sort (atom-count-seq b-xs)))))
 
-(defn set|map:heuristic [problem]
-  (let [[left right] (peek (:stack problem))]
-    (if (<= (count left) (count right))
-      0
-      (let [diff-count (- (count left) (count right))]
-        (transduce (take diff-count) + (atom-count-seq left))))))
+(defn set|map:heuristic [[left right]]
+  (if (<= (count left) (count right))
+    0
+    (let [diff-count (- (count left) (count right))]
+      (transduce (take diff-count) + (sort (atom-count-seq left))))))
 
-(defmethod heuristic #{:set} [problem]
-  (set|map:heuristic problem))
+(defmethod heuristic :set [comparison]
+  (set|map:heuristic comparison))
 
-(defmethod heuristic #{:map} [problem]
-  (set|map:heuristic problem))
+(defmethod heuristic :map [comparison]
+  (set|map:heuristic comparison))
 
 (defn add-diff [problem left]
   (-> problem
@@ -95,7 +102,7 @@
 (defmethod children :default [[left] problem]
   (list (add-diff problem left)))
 
-(defmethod children #{:atom} [[left right] problem]
+(defmethod children :atom [[left right] problem]
   (list (cond-> problem
                 (not= left right) (add-diff left))))
 
@@ -108,22 +115,31 @@
   (stack-updates [[:index left-index] [:index right-index]]
                  [left right]))
 
-(defn seq:inc-meta-index [xs index]
-  (vary-meta xs assoc ::index (inc index)))
+(defn seq:update-meta [xs xs-f meta-f & args]
+  (let [xs* (xs-f xs)
+        m (meta xs*)]
+    (with-meta xs* (apply meta-f m args))))
+
+(defn seq:inc-meta-index [m index]
+  (assoc m ::index (inc index)))
+
+(defn seq:dis [xs]
+  (let [m (update (meta xs) ::count-seq rest)]
+    (with-meta (rest xs) m)))
 
 (defn seq:child-default [problem
                          [left left-index left-seq]
                          [right right-index right-seq]]
   (-> problem
-      (update :stack conj [(seq:inc-meta-index (rest left-seq) left-index)
-                           (seq:inc-meta-index (rest right-seq) right-index)])
+      (update :stack conj [(seq:update-meta left-seq seq:dis seq:inc-meta-index left-index)
+                           (seq:update-meta right-seq seq:dis seq:inc-meta-index right-index)])
       (update :stack into (seq:stack-updates left-index right-index left right))))
 
 (defn seq:child-delete-first-element [problem
                                       [left left-index left-seq]
                                       [_ _ right-seq]]
   (-> problem
-      (update :stack conj [(seq:inc-meta-index (rest left-seq) left-index)
+      (update :stack conj [(seq:update-meta left-seq seq:dis seq:inc-meta-index left-index)
                            right-seq])
       (update :diffs conj [(conj (:left-path problem) [:index left-index])
                            (conj (:right-path problem) [:index -1 :nil])])
@@ -133,8 +149,8 @@
                                    [_ left-index left-seq]
                                    [right right-index right-seq]]
   (-> problem
-      (update :stack conj [(seq:inc-meta-index left-seq left-index)
-                           (seq:inc-meta-index (rest right-seq) right-index)])
+      (update :stack conj [(seq:update-meta left-seq identity seq:inc-meta-index left-index)
+                           (seq:update-meta right-seq seq:dis seq:inc-meta-index right-index)])
       (update :diffs conj [(conj (:left-path problem) [:index left-index :before])
                            (conj (:right-path problem) [:index right-index])])
       (update :costs + (atom-count right))))
@@ -145,7 +161,7 @@
 (defn seq:meta-index [xs]
   (::index (meta xs) 0))
 
-(defmethod children #{:sequential} [comparison problem]
+(defmethod children :sequential [comparison problem]
   (let [[[left :as left-indexed]
          [right :as right-indexed]]
         (map (juxt seq:first-or-absent seq:meta-index identity) comparison)]
@@ -173,17 +189,17 @@
                 (seq left-1) (update :stack conj [left-1 (dis right r)])
                 :always (update :stack into (set|map:stack-updates l r)))))))
 
-(defn set:dis [s x] (disj s x))
+(defn set:dis [s x] (vary-meta (disj s x) update ::count-seq rest))
 
 (defn set:stack-updates [left right]
   (stack-updates [[:set left] [:set right]] [left right]))
 
-(defmethod children #{:set}
+(defmethod children :set
   [comparison problem]
   (set|map:children set:stack-updates
                     set:dis ::diff/nil comparison problem))
 
-(defn map:dis [m [k]] (dissoc m k))
+(defn map:dis [m [k]] (vary-meta (dissoc m k) update ::count-seq rest))
 
 (defn map:stack-updates [[left-key left-value] [right-key right-value]]
   (stack-updates [[:m-key left-key] [:m-key right-key]]
@@ -193,7 +209,7 @@
                  [[:m-val left-key] [:m-val right-key]]
                  [left-value right-value]))
 
-(defmethod children #{:map}
+(defmethod children :map
   [comparison problem]
   (set|map:children map:stack-updates
                     map:dis [::diff/nil ::diff/nil] comparison problem))
@@ -233,18 +249,28 @@
         p)
       p)))
 
-(def child-xf (comp (map update-path)
-                    (map #(update % :depth (fnil dec 0)))))
-
-(defrecord EqualStarProblem [best-costs]
+(defrecord EqualStarProblem [stack best-costs priority seen complete-costs]
   search/Searchable
-  (children [{stack :stack :as problem}]
-    (when-let [comparison (and (< (complete-costs problem) @best-costs)
+  (children [this]
+    (when-let [comparison (and (not (contains? @seen stack))
+                               (< complete-costs @best-costs)
                                (peek stack))]
-      (sequence child-xf
-                (children comparison (update problem :stack pop)))))
+      (vswap! seen conj stack)
+      (children comparison (update this :stack pop))))
   (xform [_]
-    (remove #(<= @best-costs (complete-costs %))))
+    (comp
+      (map update-path)
+      (map #(let [$complete-costs (calculate-complete-costs %)]
+              (-> %
+                  (assoc :complete-costs $complete-costs)
+                  (assoc :priority [$complete-costs (:depth %)]))))
+      (remove #(<= @best-costs (:complete-costs %)))
+      (map #(update % :depth (fnil dec 0)))))
+  search/AsyncSearchable
+  (xform-async [_]
+    (comp
+      (remove #(<= @best-costs (:complete-costs % 0)))
+      (map #(assoc % :seen (volatile! #{})))))
   search/ExhaustiveSearch
   (stop [{:keys [diffs] :as this}]
     (when (not (stack? this))
@@ -253,14 +279,12 @@
               (empty? diffs) (reduced))))
   search/Combinable
   (combine [_ other] other)
-  (combine-async [this other]
-    (choose-better this other))
+  (combine-async [this other] (choose-better this other))
   search/Prioritizable
-  (priority [this] [(complete-costs this)
-                    (:depth this)]))
+  (priority [_] priority))
 
 (def meta-count-xf
-  (map (comp (fnil identity 1) ::count meta)))
+  (map (comp inc (partial apply +) #(::count-seq % '(0)) meta)))
 
 (defn add-count-meta [x]
   (let [xs (if (map? x) (mapcat seq x) (seq x))
@@ -269,13 +293,8 @@
                                   (map (partial apply +))))]
     (as-> x $
           (->> xs
-               (into '() xf)
-               (sort)
-               (vary-meta $ assoc ::count-seq))
-          (->> xs
-               (transduce meta-count-xf +)
-               (inc)
-               (vary-meta $ assoc ::count)))))
+               (into [] xf)
+               (vary-meta $ assoc ::count-seq)))))
 
 (def coll-walker+meta-nav
   (s/recursive-path
@@ -298,6 +317,8 @@
                             :costs      0
                             :left-path  []
                             :right-path []
+                            :seen       (volatile! #{})
+                            :complete-costs 0
                             :best-costs (atom Integer/MAX_VALUE)})))
 
 (defn =*
