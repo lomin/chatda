@@ -17,18 +17,18 @@
 
 (defn calculate-complete-costs [problem]
   (+ (:costs problem)
-     (transduce (map (or (:heuristic problem) (constantly 0)))
+     (transduce (map (:heuristic problem))
                 +
                 (:stack problem))))
 
-(def NOOP-XFORM (map identity))
-
 (defn make-xform [k problem]
-  (if-let [xform (k problem)]
-    (xform problem)
-    NOOP-XFORM))
+  (when-let [make-xform* (k problem)]
+    (make-xform* problem)))
 
-(defrecord AStarProblem [stack best-costs priority seen complete-costs children continue?]
+(defn comp-some [& xforms]
+  (apply comp (filter some? xforms)))
+
+(defrecord AStarProblem [stack best-costs priority seen complete-costs children continue? optimal?]
   search/Searchable
   (children [this]
     (when-let [comparison (and (continue? this)
@@ -36,7 +36,7 @@
                                (peek stack))]
       (children comparison (update this :stack pop))))
   (xform [this]
-    (comp
+    (comp-some
       (make-xform :xform this)
       (map #(let [$complete-costs (calculate-complete-costs %)]
               (-> %
@@ -46,15 +46,15 @@
       (map #(update % :depth (fnil dec 0)))))
   search/AsyncSearchable
   (xform-async [this]
-    (comp
+    (comp-some
       (remove #(<= @best-costs (:complete-costs % 0)))
       (make-xform :xform-async this)))
   search/ExhaustiveSearch
-  (stop [{:keys [diffs] :as this}]
+  (stop [this]
     (when (not (stack? this))
       (swap! best-costs min (:costs this))
       (cond-> this
-              (empty? diffs) (reduced))))
+              (optimal? this) (reduced))))
   search/Combinable
   (combine [_ other] other)
   (combine-async [this other] (choose-better this other))
@@ -63,11 +63,16 @@
 
 (defn a-star-problem [m]
   (map->AStarProblem (merge {:continue?      (constantly true)
+                             :optimal?       (constantly false)
                              :children       (constantly nil)
+                             :heuristic      (constantly 0)
                              :compare        compare
                              :stack          (list)
                              :depth          0
                              :costs          0
                              :complete-costs 0
-                             :best-costs     (atom Integer/MAX_VALUE)}
+                             :priority       0
+                             :best-costs     (atom Integer/MAX_VALUE)
+                             :xform          nil
+                             :xform-async    nil}
                             m)))

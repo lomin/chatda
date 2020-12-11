@@ -278,17 +278,18 @@
 (defn equal-star-problem [left right]
   (let [left* (prepare left)
         right* (prepare right)]
-    (a-star/a-star-problem {:continue?      (do-not-continue-if-seen)
-                            :children       children
-                            :heuristic      heuristic
-                            :xform          (fn [_] (map update-path))
-                            :xform-async    (fn [_] (map #(assoc % :continue? (do-not-continue-if-seen))))
-                            :source         [left* right*]
-                            :stack          (list [left* right*])
-                            :diffs          '()
-                            :left-path      []
-                            :right-path     []
-                            :seen           (volatile! #{})})))
+    (a-star/a-star-problem {:continue?   (do-not-continue-if-seen)
+                            :optimal?    (fn [{diffs :diffs}] (empty? diffs))
+                            :children    children
+                            :heuristic   heuristic
+                            :xform       (fn [_] (map update-path))
+                            :xform-async (fn [_] (map #(assoc % :continue? (do-not-continue-if-seen))))
+                            :source      [left* right*]
+                            :stack       (list [left* right*])
+                            :diffs       '()
+                            :left-path   []
+                            :right-path  []
+                            :seen        (volatile! #{})})))
 
 (defn =*
   ([a b] (=* a b nil))
