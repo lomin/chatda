@@ -3,6 +3,7 @@
             [kaocha.report]
             [kaocha.output :as output]
             [me.lomin.chatda.search :as search]
+            [me.lomin.chatda.a-star :as a-star]
             [me.lomin.chatda.diff :as diff]
             [com.rpl.specter :as s]))
 
@@ -59,9 +60,6 @@
     (equality-partition comparison nil)))
 
 (defmulti heuristic heuristic-dispatch)
-
-(defn calculate-complete-costs [problem]
-  (+ (:costs problem) (transduce (map heuristic) + (:stack problem))))
 
 (defn atom-count-seq [x] (::count-seq (meta x)))
 (defn atom-count [x] (reduce + 1 (atom-count-seq x)))
@@ -208,20 +206,6 @@
   (set|map:children map:stack-updates
                     map:dis [::diff/nil ::diff/nil] comparison problem))
 
-(defn stack? [problem]
-  (boolean (seq (:stack problem))))
-
-(defn better? [p0 p1]
-  (let [stack-0? (stack? p0)
-        stack-1? (stack? p1)]
-    (neg? (compare [stack-0? (:costs p0)]
-                   [stack-1? (:costs p1)]))))
-
-(defn choose-better [defender challenger]
-  (if (better? challenger defender)
-    challenger
-    defender))
-
 (defn push-path [problem [left-path right-path]]
   (-> problem
       (update :left-path conj left-path)
@@ -243,39 +227,22 @@
         p)
       p)))
 
-(defrecord EqualStarProblem [stack best-costs priority seen complete-costs]
-  search/Searchable
-  (children [this]
-    (when-let [comparison (and (not (contains? @seen stack))
-                               (< complete-costs @best-costs)
-                               (peek stack))]
-      (vswap! seen conj stack)
-      (children comparison (update this :stack pop))))
-  (xform [_]
-    (comp
-      (map update-path)
-      (map #(let [$complete-costs (calculate-complete-costs %)]
-              (-> %
-                  (assoc :complete-costs $complete-costs)
-                  (assoc :priority [$complete-costs (:depth %)]))))
-      (remove #(<= @best-costs (:complete-costs %)))
-      (map #(update % :depth (fnil dec 0)))))
-  search/AsyncSearchable
-  (xform-async [_]
-    (comp
-      (remove #(<= @best-costs (:complete-costs % 0)))
-      (map #(assoc % :seen (volatile! #{})))))
-  search/ExhaustiveSearch
-  (stop [{:keys [diffs] :as this}]
-    (when (not (stack? this))
-      (swap! best-costs min (:costs this))
-      (cond-> this
-              (empty? diffs) (reduced))))
-  search/Combinable
-  (combine [_ other] other)
-  (combine-async [this other] (choose-better this other))
-  search/Prioritizable
-  (priority [_] priority))
+(defn stack? [problem]
+  (boolean (seq (:stack problem))))
+
+(defn better? [p0 p1]
+  (let [stack-0? (stack? p0)
+        stack-1? (stack? p1)]
+    (neg? (compare [stack-0? (:costs p0)]
+                   [stack-1? (:costs p1)]))))
+
+(defn choose-better [defender challenger]
+  (if (better? challenger defender)
+    challenger
+    defender))
+
+(defn calculate-complete-costs [problem]
+  (+ (:costs problem) (transduce (map (:heuristic problem)) + (:stack problem))))
 
 (def meta-count-xf
   (map (comp inc (partial apply +) #(::count-seq % '(0)) meta)))
@@ -300,20 +267,28 @@
 (defn prepare [x]
   (s/transform coll-walker+meta-nav add-count-meta x))
 
+(defn do-not-continue-if-seen []
+  (let [seen (volatile! #{})]
+    (fn [{stack :stack}]
+      (if (contains? @seen stack)
+        false
+        (do (vswap! seen conj stack)
+            true)))))
+
 (defn equal-star-problem [left right]
   (let [left* (prepare left)
         right* (prepare right)]
-    (map->EqualStarProblem {:compare        compare
+    (a-star/a-star-problem {:continue?      (do-not-continue-if-seen)
+                            :children       children
+                            :heuristic      heuristic
+                            :xform          (fn [_] (map update-path))
+                            :xform-async    (fn [_] (map #(assoc % :continue? (do-not-continue-if-seen))))
                             :source         [left* right*]
                             :stack          (list [left* right*])
                             :diffs          '()
-                            :depth          0
-                            :costs          0
                             :left-path      []
                             :right-path     []
-                            :seen           (volatile! #{})
-                            :complete-costs 0
-                            :best-costs     (atom Integer/MAX_VALUE)})))
+                            :seen           (volatile! #{})})))
 
 (defn =*
   ([a b] (=* a b nil))

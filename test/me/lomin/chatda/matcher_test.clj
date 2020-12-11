@@ -281,6 +281,7 @@
                              5
                              {{1 2 3 4} {5 6 7 8}}
                              #{4 5 [6 7]}])))))
+
 (def heuristic-test nil)
 (deftest heuristic-test
   (is (= 0 (matcher/calculate-complete-costs
