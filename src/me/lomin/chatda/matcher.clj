@@ -227,23 +227,6 @@
         p)
       p)))
 
-(defn stack? [problem]
-  (boolean (seq (:stack problem))))
-
-(defn better? [p0 p1]
-  (let [stack-0? (stack? p0)
-        stack-1? (stack? p1)]
-    (neg? (compare [stack-0? (:costs p0)]
-                   [stack-1? (:costs p1)]))))
-
-(defn choose-better [defender challenger]
-  (if (better? challenger defender)
-    challenger
-    defender))
-
-(defn calculate-complete-costs [problem]
-  (+ (:costs problem) (transduce (map (:heuristic problem)) + (:stack problem))))
-
 (def meta-count-xf
   (map (comp inc (partial apply +) #(::count-seq % '(0)) meta)))
 
