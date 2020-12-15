@@ -283,52 +283,55 @@
                              {{1 2 3 4} {5 6 7 8}}
                              #{4 5 [6 7]}])))))
 
+(defn calculate-complete-costs [problem]
+  (+ (:costs problem) (a-star/heuristic problem)))
+
 (def heuristic-test nil)
 (deftest heuristic-test
-  (is (= 0 (a-star/calculate-complete-costs
+  (is (= 0 (calculate-complete-costs
              (matcher/equal-star-problem 1 1))))
-  (is (= 1 (a-star/calculate-complete-costs
+  (is (= 1 (calculate-complete-costs
              (matcher/equal-star-problem 1 2))))
-  (is (= 1 (a-star/calculate-complete-costs
+  (is (= 1 (calculate-complete-costs
              (matcher/equal-star-problem #{} {}))))
-  (is (= 4 (a-star/calculate-complete-costs
+  (is (= 4 (calculate-complete-costs
              (matcher/equal-star-problem '(1)
                                          (range 5)))))
-  (is (= 6 (a-star/calculate-complete-costs
+  (is (= 6 (calculate-complete-costs
              (matcher/equal-star-problem '((1) (1 2 3))
                                          '()))))
-  (is (= 0 (a-star/calculate-complete-costs
+  (is (= 0 (calculate-complete-costs
              (matcher/equal-star-problem #{1}
                                          #{3 4}))))
-  (is (= 0 (a-star/calculate-complete-costs
+  (is (= 0 (calculate-complete-costs
              (matcher/equal-star-problem #{1 2}
                                          #{3 4}))))
-  (is (= 1 (a-star/calculate-complete-costs
+  (is (= 1 (calculate-complete-costs
              (matcher/equal-star-problem #{1 2}
                                          #{3}))))
-  (is (= 4 (a-star/calculate-complete-costs
+  (is (= 4 (calculate-complete-costs
              (matcher/equal-star-problem #{(range 5) (range 3)}
                                          #{3}))))
-  (is (= 0 (a-star/calculate-complete-costs
+  (is (= 0 (calculate-complete-costs
              (matcher/equal-star-problem {1 2}
                                          {3 4 5 6}))))
-  (is (= 2 (a-star/calculate-complete-costs
+  (is (= 2 (calculate-complete-costs
              (matcher/equal-star-problem {3 4 5 6}
                                          {1 2}))))
   (is (= 7
-         (a-star/calculate-complete-costs
+         (calculate-complete-costs
            (matcher/equal-star-problem {(range 5) 2 3 (range 10)}
                                        {1 2}))))
 
   (is (= 1
          (-> (matcher/equal-star-problem '(1 :y :z) '(:y :z))
-             (a-star/calculate-complete-costs))
+             (calculate-complete-costs))
          (as-> (matcher/equal-star-problem [:x 1 :y :z]
                                            [:x :y :z])
                $
                (sequence (search/xform $) (search/children $))
                (last $)                                     ; default
-               (a-star/calculate-complete-costs $))))
+               (calculate-complete-costs $))))
 
   (is (= 3
          (as-> (matcher/equal-star-problem [:a :b :c :d]
@@ -336,7 +339,7 @@
                $
                (sequence (search/xform $) (search/children $))
                (first $)                                    ; default
-               (a-star/calculate-complete-costs $))))
+               (calculate-complete-costs $))))
 
   (is (= 1
          (as-> (matcher/equal-star-problem [:a :b :c :d]
@@ -344,7 +347,7 @@
                $
                (sequence (search/xform $) (search/children $))
                (second $)                                   ; default
-               (a-star/calculate-complete-costs $)))))
+               (calculate-complete-costs $)))))
 
 (def containers (fn [inner-gen]
                   (gen/one-of [(gen/list inner-gen)

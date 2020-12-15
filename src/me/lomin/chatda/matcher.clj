@@ -61,6 +61,9 @@
 
 (defmulti heuristic heuristic-dispatch)
 
+(defn calculate-complete-costs [problem]
+  (+ (:costs problem) (transduce (map heuristic) + (:stack problem))))
+
 (defn atom-count-seq [x] (::count-seq (meta x)))
 (defn atom-count [x] (reduce + 1 (atom-count-seq x)))
 
@@ -206,6 +209,20 @@
   (set|map:children map:stack-updates
                     map:dis [::diff/nil ::diff/nil] comparison problem))
 
+(defn stack? [problem]
+  (boolean (seq (:stack problem))))
+
+(defn better? [p0 p1]
+  (let [stack-0? (stack? p0)
+        stack-1? (stack? p1)]
+    (neg? (compare [stack-0? (:costs p0)]
+                   [stack-1? (:costs p1)]))))
+
+(defn choose-better [defender challenger]
+  (if (better? challenger defender)
+    challenger
+    defender))
+
 (defn push-path [problem [left-path right-path]]
   (-> problem
       (update :left-path conj left-path)
@@ -250,35 +267,52 @@
 (defn prepare [x]
   (s/transform coll-walker+meta-nav add-count-meta x))
 
-(defn do-not-continue-if-seen []
-  (let [seen (volatile! #{})]
-    (fn [{stack :stack}]
-      (if (contains? @seen stack)
-        false
-        (do (vswap! seen conj stack)
-            true)))))
+(a-star/def-a-star EqualStarProblem [stack seen]
+  a-star/ForwardCostPredictable
+  (heuristic [_]
+    (transduce (map heuristic) + stack))
+  search/Searchable
+  (children [this]
+    (a-star/with-children
+      (when-let [comparison (and (not (contains? @seen stack))
+                                 (peek stack))]
+        (vswap! seen conj stack)
+        (children comparison (update this :stack pop)))))
+  (xform [_]
+    (a-star/with-xform
+      (map update-path)))
+  search/AsyncSearchable
+  (xform-async [_]
+    (a-star/with-xform-async
+      (map #(assoc % :seen (volatile! #{})))))
+  search/ExhaustiveSearch
+  (stop [{:keys [diffs] :as this}]
+    (a-star/with-stop
+      (when (not (stack? this))
+        (cond-> this
+                (empty? diffs) (reduced)))))
+  search/Combinable
+  (combine [_ other] other)
+  (combine-async [this other] (choose-better this other)))
 
 (defn equal-star-problem [left right]
   (let [left* (prepare left)
         right* (prepare right)]
-    (a-star/a-star-problem {:continue?   (do-not-continue-if-seen)
-                            :optimal?    (fn [{diffs :diffs}] (empty? diffs))
-                            :children    children
-                            :heuristic   heuristic
-                            :xform       (fn [_] (map update-path))
-                            :xform-async (fn [_] (map #(assoc % :continue? (do-not-continue-if-seen))))
-                            :source      [left* right*]
-                            :stack       (list [left* right*])
-                            :diffs       '()
-                            :left-path   []
-                            :right-path  []
-                            :seen        (volatile! #{})})))
+    (-> {:compare    compare
+         :source     [left* right*]
+         :stack      (list [left* right*])
+         :diffs      '()
+         :left-path  []
+         :right-path []
+         :seen       (volatile! #{})}
+        (map->EqualStarProblem)
+        (a-star/init))))
 
 (defn =*
   ([a b] (=* a b nil))
   ([a b options]
    (as-> (equal-star-problem a b) $
-         (search/parallel-depth-first-search $ options)
+         (search/parallel-depth-first-search $ (merge {:parallelism 1} options))
          (if (seq (:stack $))
            :timeout
            (diff/diff (:diffs $) (:source $))))))
