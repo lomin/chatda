@@ -96,15 +96,7 @@
 (defn transduce-1
   "apply a transducer on a single value"
   [xform x]
-  (let [f (xform
-            (fn [a b]
-              (if (nil? a)
-                [b]
-                (vary-meta (conj a b) assoc ::skip-unpack? true))))]
-    (let [result (f nil x)]
-      (if (::skip-unpack? (meta result))
-        result
-        (first result)))))
+  (first (into [] xform [x])))
 
 (defn remove-worker-from [worker-pool worker]
   (filterv #(not= % worker) worker-pool))

@@ -267,10 +267,10 @@
 (defn prepare [x]
   (s/transform coll-walker+meta-nav add-count-meta x))
 
-(a-star/def-a-star EqualStarProblem [stack seen]
-  a-star/ForwardCostPredictable
-  (heuristic [_]
-    (transduce (map heuristic) + stack))
+(a-star/def-a-star EqualStarProblem [costs stack seen]
+  a-star/CostPredictable
+  (back+forward-costs [_]
+    (+ costs (transduce (map heuristic) + stack)))
   search/Searchable
   (children [this]
     (a-star/with-children
@@ -298,10 +298,10 @@
 (defn equal-star-problem [left right]
   (let [left* (prepare left)
         right* (prepare right)]
-    (-> {:compare    compare
-         :source     [left* right*]
+    (-> {:source     [left* right*]
          :stack      (list [left* right*])
          :diffs      '()
+         :costs      0
          :left-path  []
          :right-path []
          :seen       (volatile! #{})}
@@ -312,7 +312,9 @@
   ([a b] (=* a b nil))
   ([a b options]
    (as-> (equal-star-problem a b) $
-         (search/parallel-depth-first-search $ (merge {:parallelism 1} options))
+         (search/parallel-depth-first-search $
+                                             (merge {:parallelism 1 :chan-size 1}
+                                                    options))
          (if (seq (:stack $))
            :timeout
            (diff/diff (:diffs $) (:source $))))))
