@@ -55,6 +55,18 @@
       `(comp (best-cost-xform ~best-costs) (do ~@body))
       `(best-cost-xform ~best-costs))))
 
+(defmacro with-combine-async
+  [this other & body]
+  (let [body* (if (seq body) (list (cons 'do body)) (list other))]
+    `(if (::sorted (meta ~this))
+       ~@body*
+       (if (and (search/stop ~this)
+                (or (not (search/stop ~other))
+                    (< (back+forward-costs ~this)
+                       (back+forward-costs ~other))))
+         (search/combine-async (vary-meta ~other assoc ::sorted true) ~this)
+         (search/combine-async (vary-meta ~this assoc ::sorted true) ~other)))))
+
 (defn init [p]
   (merge p {:compare compare
             :a-star:priority   [0 0]
