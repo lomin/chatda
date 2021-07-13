@@ -104,24 +104,24 @@
   (filterv #(not= % worker) worker-pool))
 
 (defn next-channel-value
-  [worker-pool control-chans parallelism]
+  [worker-pool control-chan parallelism]
   (if (<= parallelism (count worker-pool))
     (async/alts!! worker-pool)
     (if (seq worker-pool)
-      (async/alts!! (conj worker-pool (peek control-chans)))
-      (async/alts!! control-chans :default nil))))
+      (async/alts!! (conj worker-pool control-chan))
+      [(async/poll! control-chan) control-chan])))
 
 (defn rec:parallel-depth-first-search
-  [root-problem [problem-bus :as control-chans] parallelism solve-async]
+  [root-problem control-chan parallelism solve-async]
   (loop [problem root-problem
          worker-pool []]
     (let [[$val ch] (next-channel-value worker-pool
-                                        control-chans parallelism)]
+                                        control-chan parallelism)]
       (cond
         (nil? $val) problem
         (reduced? $val) @$val
         (instance? Throwable $val) (throw $val)
-        (= ch problem-bus) (recur problem
+        (= ch control-chan) (recur problem
                                   (conj worker-pool
                                         (solve-async $val)))
         :else (recur (combine-async problem $val)
@@ -156,25 +156,24 @@
             parallelism 4}}]
    (let [xf (chan-xform init)
          root-problem (transduce-1 xf init)
-         problem-bus (async/chan (priority-queue chan-size compare root-problem)
+         control-chan (async/chan (priority-queue chan-size compare root-problem)
                                  xf)
-         control-chans [problem-bus]
          search-xf (if timeout
-                     (comp (timeout-xf timeout problem-bus) (xform init) priority-xf)
+                     (comp (timeout-xf timeout control-chan) (xform init) priority-xf)
                      (comp (xform init) priority-xf))
          empty-heap (partial pm/priority-map-by compare)
          solve-async (partial async-worker
                               search-xf
-                              problem-bus
+                              control-chan
                               empty-heap
                               (< 1 parallelism))]
      (try
        (rec:parallel-depth-first-search root-problem
-                                        control-chans
+                                        control-chan
                                         parallelism
                                         solve-async)
        (finally
-         (async/close! problem-bus)))))
+         (async/close! control-chan)))))
   ([init chan-size parallelism]
    (parallel-depth-first-search init {:chan-size   chan-size
                                       :parallelism parallelism})))
