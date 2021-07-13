@@ -80,19 +80,19 @@
          :else first-problem#))
      ~problem))
 
-(defn async-worker [xform problem-bus empty-heap parallel? problem]
+(defn async-worker [{:keys [search-xf control-chan compare parallel?]} problem]
   (async/go
     (try
       (loop [p problem
-             heap (empty-heap)]
+             heap (pm/priority-map-by compare)]
         (if-let [$children (seq (children p))]
-          (if-let [next-heap (try (into heap xform $children)
+          (if-let [next-heap (try (into heap search-xf $children)
                                   (catch TimeoutException _))]
-            (combine->offer->recur p next-heap problem-bus parallel?)
+            (combine->offer->recur p next-heap control-chan parallel?)
             p)
           (if-let [result (stop p)]
             result
-            (combine->offer->recur p heap problem-bus parallel?))))
+            (combine->offer->recur p heap control-chan parallel?))))
       (catch Exception e e))))
 
 (defn transduce-1
@@ -111,8 +111,8 @@
       (async/alts!! (conj worker-pool control-chan))
       [(async/poll! control-chan) control-chan])))
 
-(defn rec:parallel-depth-first-search
-  [root-problem control-chan parallelism solve-async]
+(defn rec:search
+  [{:keys [root-problem control-chan parallelism] :as config}]
   (loop [problem root-problem
          worker-pool []]
     (let [[$val ch] (next-channel-value worker-pool
@@ -122,8 +122,8 @@
         (reduced? $val) @$val
         (instance? Throwable $val) (throw $val)
         (= ch control-chan) (recur problem
-                                  (conj worker-pool
-                                        (solve-async $val)))
+                                   (conj worker-pool
+                                         (async-worker config $val)))
         :else (recur (combine-async problem $val)
                      (remove-worker-from worker-pool ch))))))
 
@@ -157,21 +157,17 @@
    (let [xf (chan-xform init)
          root-problem (transduce-1 xf init)
          control-chan (async/chan (priority-queue chan-size compare root-problem)
-                                 xf)
+                                  xf)
          search-xf (if timeout
                      (comp (timeout-xf timeout control-chan) (xform init) priority-xf)
                      (comp (xform init) priority-xf))
-         empty-heap (partial pm/priority-map-by compare)
-         solve-async (partial async-worker
-                              search-xf
-                              control-chan
-                              empty-heap
-                              (< 1 parallelism))]
+         config {:root-problem root-problem
+                 :control-chan control-chan
+                 :search-xf    search-xf
+                 :parallelism  parallelism
+                 :compare      compare}]
      (try
-       (rec:parallel-depth-first-search root-problem
-                                        control-chan
-                                        parallelism
-                                        solve-async)
+       (rec:search config)
        (finally
          (async/close! control-chan)))))
   ([init chan-size parallelism]
