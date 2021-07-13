@@ -7,7 +7,7 @@
 
 (defn cnt:parent [{:keys [value branch] :as problem}]
   (when (pos? value)
-    (assoc problem :value (int (/ (dec value) branch)))))
+    (assoc problem :value (bigint (/ (dec value) branch)))))
 
 (defn cnt:ancestors [problem]
   (take-while some?
@@ -41,7 +41,7 @@
                                :max-size max-size}))
 
 (defn cnt:child-value [value branch-factor child-index]
-  (+ (* branch-factor value) child-index))
+  (+' (*' branch-factor value) child-index))
 
 (defrecord ParallelNumberTreeSearch []
   search/Searchable
