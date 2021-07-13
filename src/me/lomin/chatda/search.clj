@@ -67,15 +67,17 @@
 
 (defmacro combine->offer->recur [problem heap chan parallel?]
   `(if (seq ~heap)
-     (let [$first# (combine ~problem (first (peek ~heap)))
-           $next# (pop ~heap)
-           [spawn#] (peek $next#)]
-       (if (async-protocols/closed? ~chan)
-         $first#
-         (recur $first#
-                (if (and ~parallel? spawn# (async/offer! ~chan spawn#))
-                  (pop $next#)
-                  $next#))))
+     (let [first-problem# (combine ~problem (first (peek ~heap)))
+           next-heap# (pop ~heap)
+           [second-problem#] (peek next-heap#)
+           offer# (and second-problem# ~parallel? (async/offer! ~chan second-problem#))]
+       (cond
+         ;; second-problem# put onto chan: forget about second-problem#
+         offer# (recur first-problem# (pop next-heap#))
+         ;; channel full or no problems left: do not forget second-problem#
+         (or (not ~parallel?) (nil? offer#)) (recur first-problem# next-heap#)
+         ;; channel closed: stop immediately
+         :else first-problem#))
      ~problem))
 
 (defn async-worker [xform problem-bus empty-heap parallel? problem]
