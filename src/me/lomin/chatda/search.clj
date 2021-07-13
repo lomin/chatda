@@ -162,7 +162,7 @@
          timeout-future (when timeout (future (Thread/sleep timeout)
                                               (async/close! problem-bus)))
          search-xf (cond-> (list (xform init) priority-xf)
-                           timeout (conj (timeout-xf timeout-future))
+                           timeout-future (conj (timeout-xf timeout-future))
                            :always (->> (apply comp)))
          time-left? (time-left-fn timeout-future)
          empty-heap (partial pm/priority-map-by compare)
@@ -170,15 +170,16 @@
                               search-xf
                               problem-bus
                               empty-heap
-                              (< 1 parallelism))
-         result (rec:parallel-depth-first-search root-problem
-                                                 control-chans
-                                                 parallelism
-                                                 time-left?
-                                                 solve-async)]
-     (async/close! problem-bus)
-     (when timeout (future-cancel timeout-future))
-     result))
+                              (< 1 parallelism))]
+     (try
+       (rec:parallel-depth-first-search root-problem
+                                        control-chans
+                                        parallelism
+                                        time-left?
+                                        solve-async)
+       (finally
+         (async/close! problem-bus)
+         (when timeout-future (future-cancel timeout-future))))))
   ([init chan-size parallelism]
    (parallel-depth-first-search init {:chan-size   chan-size
                                       :parallelism parallelism})))
