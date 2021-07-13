@@ -56,16 +56,22 @@
       `(best-cost-xform ~best-costs))))
 
 (defmacro with-combine-async
+  "Ensures that:
+   1. when only one of `this` and `other` stopped, it will be `other` that stopped
+   2. when both `this` and `other` stopped,
+      `(< (back+forward-costs other) (back+forward-costs this))`
+   In this way, `other` can be returned as a default value (which it
+   is, if there is no body at all)."
   [this other & body]
-  (let [body* (if (seq body) (list (cons 'do body)) (list other))]
+  (let [body* (if (seq body) (cons 'do body) other)]
     `(if (::sorted (meta ~this))
-       ~@body*
+       ~body*
        (if (and (search/stop ~this)
                 (or (not (search/stop ~other))
                     (< (back+forward-costs ~this)
                        (back+forward-costs ~other))))
          (search/combine-async (vary-meta ~other assoc ::sorted true) ~this)
-         (search/combine-async (vary-meta ~this assoc ::sorted true) ~other)))))
+         ~body*))))
 
 (defn init [p]
   (merge p {:compare compare
