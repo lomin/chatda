@@ -18,7 +18,7 @@
 ;; 1 second on my tiny machine.
 (deftest timeout-test
   (testing "timeout takes effect before computation finishes"
-    (is (> 1E300
+    (is (> 1E50
            (-> (ntt/search-root 20 5E300)
                (search/parallel-depth-first-search {:parallelism 4
                                                     :chan-size   4

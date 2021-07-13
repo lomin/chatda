@@ -104,21 +104,19 @@
   (filterv #(not= % worker) worker-pool))
 
 (defn next-channel-value
-  [worker-pool control-chans parallelism time-left?]
+  [worker-pool control-chans parallelism]
   (if (<= parallelism (count worker-pool))
     (async/alts!! worker-pool)
     (if (seq worker-pool)
-      (if (time-left?)
-        (async/alts!! (conj worker-pool (peek control-chans)))
-        (async/alts!! worker-pool :default nil))
+      (async/alts!! (conj worker-pool (peek control-chans)))
       (async/alts!! control-chans :default nil))))
 
 (defn rec:parallel-depth-first-search
-  [root-problem [problem-bus :as control-chans] parallelism time-left? solve-async]
+  [root-problem [problem-bus :as control-chans] parallelism solve-async]
   (loop [problem root-problem
          worker-pool []]
     (let [[$val ch] (next-channel-value worker-pool
-                                        control-chans parallelism time-left?)]
+                                        control-chans parallelism)]
       (cond
         (nil? $val) problem
         (reduced? $val) @$val
@@ -131,18 +129,20 @@
 
 (def depth-first-comparator (fn [a b] (compare b a)))
 (def priority-xf (map (fn [x] [x (priority x)])))
+;; create TimeoutException ahead of time and only once, since
+;; creating an exception is expensive and we are not interested
+;; in the stacktrace.
 (def timeout-exception (new TimeoutException))
 
-(defn timeout-xf [$future]
-  (map (fn [x]
-         (if (future-done? $future)
-           (throw timeout-exception)
-           x))))
-
-(defn time-left-fn [timeout-future]
-  (if timeout-future
-    #(not (future-done? timeout-future))
-    (constantly true)))
+(defn timeout-xf [timeout control-chan]
+  (let [timed-out? (volatile! false)]
+    (async/go (async/<! (async/timeout timeout))
+              (async/close! control-chan)
+              (vreset! timed-out? true))
+    (map (fn [x]
+           (if @timed-out?
+             (throw timeout-exception)
+             x)))))
 
 (defn chan-xform [init]
   (if (satisfies? AsyncSearchable init)
@@ -159,12 +159,9 @@
          problem-bus (async/chan (priority-queue chan-size compare root-problem)
                                  xf)
          control-chans [problem-bus]
-         timeout-future (when timeout (future (Thread/sleep timeout)
-                                              (async/close! problem-bus)))
-         search-xf (cond-> (list (xform init) priority-xf)
-                           timeout-future (conj (timeout-xf timeout-future))
-                           :always (->> (apply comp)))
-         time-left? (time-left-fn timeout-future)
+         search-xf (if timeout
+                     (comp (timeout-xf timeout problem-bus) (xform init) priority-xf)
+                     (comp (xform init) priority-xf))
          empty-heap (partial pm/priority-map-by compare)
          solve-async (partial async-worker
                               search-xf
@@ -175,11 +172,9 @@
        (rec:parallel-depth-first-search root-problem
                                         control-chans
                                         parallelism
-                                        time-left?
                                         solve-async)
        (finally
-         (async/close! problem-bus)
-         (when timeout-future (future-cancel timeout-future))))))
+         (async/close! problem-bus)))))
   ([init chan-size parallelism]
    (parallel-depth-first-search init {:chan-size   chan-size
                                       :parallelism parallelism})))
