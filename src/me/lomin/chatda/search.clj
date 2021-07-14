@@ -13,7 +13,9 @@ afterwards, upon completion."}
 
 (defprotocol Searchable
   (children [self])
-  (xform [self]))
+  (xform [self])
+  (priority [self])
+  (stop [this children]))
 
 (defprotocol AsyncSearchable
   (xform-async [self]))
@@ -36,9 +38,6 @@ afterwards, upon completion."}
   (count [this]
     (.size buf)))
 
-(defprotocol Prioritizable
-  (priority [self]))
-
 (defn priority-comparator [compare]
   (fn [a b] (compare (priority a) (priority b))))
 
@@ -50,13 +49,6 @@ afterwards, upon completion."}
         (cond-> (new java.util.PriorityQueue (max 1 n)
                      ^java.util.Comparator (priority-comparator compare))
                 (some? init) (doto (.add init))))))
-
-(defprotocol ExhaustiveSearch
-  (stop [this children]))
-
-(extend-protocol ExhaustiveSearch
-  Object (stop [this children] (when (empty? children) (reduced this)))
-  nil (stop [this children] (when (empty? children) (reduced this))))
 
 (defprotocol Combinable
   (combine [this other])

@@ -10,14 +10,20 @@
 (defn depth [priority]
   (get priority 1))
 
+(defn split-at-searchable-protocol [body]
+  (split-with #(not= #'search/Searchable (and (symbol? %) (resolve %))) body))
+
 (defmacro def-a-star [name fields & body]
   (let [best-costs (symbol :a-star:best-costs)
         priority (symbol :a-star:priority)
+        [first-body-part [_ & more]] (split-at-searchable-protocol body)
+        body-with-priority (concat first-body-part
+                                   `(search/Searchable
+                                      (priority [_#] ~priority)
+                                      ~@more))
         fields* (into fields [best-costs priority])]
     `(defrecord ~name ~fields*
-       ~@body
-       search/Prioritizable
-       (priority [_] ~priority))))
+       ~@body-with-priority)))
 
 (defmacro with-children [& body]
   (let [best-costs (symbol :a-star:best-costs)
@@ -74,6 +80,6 @@
          ~body*))))
 
 (defn init [p]
-  (merge p {:compare compare
+  (merge p {:compare           compare
             :a-star:priority   [0 0]
             :a-star:best-costs (atom Integer/MAX_VALUE)}))

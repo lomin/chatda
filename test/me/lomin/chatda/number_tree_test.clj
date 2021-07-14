@@ -25,9 +25,7 @@
                           max-size)))))
   (xform [_]
     (map #(assoc % :count (:value %))))
-  p/Prioritizable
   (priority [this] (count (cnt:ancestors this)))
-  p/ExhaustiveSearch
   (stop [_ _] false)
   p/Combinable
   (combine [this other]
@@ -54,8 +52,8 @@
                 (filter (fn [{v :value}] (<= v max-size))))
           (range 1 (inc branch))))
   (xform [_] (filter (comp even? :value)))
-  p/Prioritizable
-  (priority [this] (count (cnt:ancestors this))))
+  (priority [this] (count (cnt:ancestors this)))
+  (stop [this children] (when (empty? children) (reduced this))))
 
 (defn search-root [branch-factor max-size]
   (map->ParallelNumberTreeSearch {:value    0
