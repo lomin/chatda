@@ -18,7 +18,7 @@
 ;; 1 second on my tiny machine.
 (deftest timeout-test
   (testing "timeout takes effect before computation finishes"
-    (is (> 1E50
+    (is (> 1E200
            (-> (ntt/search-root 20 5E300)
                (search/parallel-depth-first-search {:parallelism 4
                                                     :chan-size   4
@@ -26,7 +26,7 @@
                :value
                #_time)))
 
-    (is (> 1E50
+    (is (> 1E200
            (-> (ntt/search-root 20 5E300)
                (search/parallel-depth-first-search {:parallelism 1
                                                     :chan-size   1
