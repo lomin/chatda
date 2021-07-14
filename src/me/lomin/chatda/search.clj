@@ -4,7 +4,7 @@
             [clojure.data.priority-map :as pm])
   (:import (java.util.concurrent TimeoutException)))
 
-(set! *warn-on-reflection* true)
+#_(set! *warn-on-reflection* true)
 
 (defprotocol Searchable
   (children [self])
@@ -90,27 +90,21 @@
 
 (defmacro worker [problem search-xf compare & args]
   `(loop [p# ~problem
-         heap# (pm/priority-map-by ~compare)]
-    (if-let [children# (seq (children p#))]
-      (if-let [next-heap# (try (into heap# ~search-xf children#)
-                               (catch TimeoutException _#))]
-        (combine->recur p# next-heap# ~@args)
-        p#)
-      (if-let [result# (stop p#)]
-        result#
-        (combine->recur p# heap# ~@args)))))
+          heap# (pm/priority-map-by ~compare)]
+     (if-let [children# (seq (children p#))]
+       (if-let [next-heap# (try (into heap# ~search-xf children#)
+                                (catch TimeoutException _#))]
+         (combine->recur p# next-heap# ~@args)
+         p#)
+       (if-let [result# (stop p#)]
+         result#
+         (combine->recur p# heap# ~@args)))))
 
 (defn async-worker [problem {:keys [search-xf control-chan compare]}]
   (async/go
     (try
       (worker problem search-xf compare offer-to control-chan)
       (catch Exception e e))))
-
-(defn sync-worker [problem {:keys [search-xf compare]}]
-  (worker problem search-xf compare))
-
-(defn search-sequential [{:keys [root-problem] :as config}]
-  (sync-worker root-problem config))
 
 (defn transduce-1
   "apply a transducer on a single value"
@@ -144,6 +138,12 @@
         :else (recur (combine-async problem $val)
                      (remove-worker-from worker-pool ch))))))
 
+(defn search-sequential [{:keys [root-problem search-xf compare]}]
+  (let [result (worker root-problem search-xf compare)]
+    (if (reduced? result)
+      @result
+      result)))
+
 (def depth-first-comparator (fn [a b] (compare b a)))
 (def priority-xf (map (fn [x] [x (priority x)])))
 ;; create TimeoutException ahead of time and only once, since
@@ -154,7 +154,7 @@
 (defn timeout-xf [timeout control-chan]
   (let [timed-out? (volatile! false)]
     (async/go (async/<! (async/timeout timeout))
-              (async/close! control-chan)
+              (when control-chan (async/close! control-chan))
               (vreset! timed-out? true))
     (map (fn [x]
            (if @timed-out?
@@ -173,8 +173,10 @@
             parallelism 4}}]
    (let [xf (chan-xform init)
          root-problem (transduce-1 xf init)
-         control-chan (async/chan (priority-queue chan-size compare root-problem)
-                                  xf)
+         parallel? (< 1 parallelism)
+         control-chan (when parallel?
+                        (async/chan (priority-queue chan-size compare root-problem)
+                                    xf))
          search-xf (if timeout
                      (comp (timeout-xf timeout control-chan) (xform init) priority-xf)
                      (comp (xform init) priority-xf))
@@ -184,11 +186,11 @@
                  :parallelism  parallelism
                  :compare      compare}]
      (try
-       (if (< 1 parallelism)
+       (if parallel?
          (search-parallel config)
          (search-sequential config))
        (finally
-         (async/close! control-chan)))))
+         (when control-chan (async/close! control-chan))))))
   ([init chan-size parallelism]
    (parallel-depth-first-search init {:chan-size   chan-size
                                       :parallelism parallelism})))
