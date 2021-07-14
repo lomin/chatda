@@ -23,7 +23,7 @@
   (let [best-costs (symbol :a-star:best-costs)
         priority (symbol :a-star:priority)]
     `(when (< (costs ~priority) (deref ~best-costs))
-       ~@body)))
+       (lazy-seq (do ~@body)))))
 
 (defmacro with-stop [& body]
   (let [best-costs (symbol :a-star:best-costs)
@@ -66,8 +66,8 @@
   (let [body* (if (seq body) (cons 'do body) other)]
     `(if (::sorted (meta ~this))
        ~body*
-       (if (and (search/stop ~this)
-                (or (not (search/stop ~other))
+       (if (and (search/stop ~this (search/children ~this))
+                (or (not (search/stop ~other (search/children ~other)))
                     (< (back+forward-costs ~this)
                        (back+forward-costs ~other))))
          (search/combine-async (vary-meta ~other assoc ::sorted true) ~this)

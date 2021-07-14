@@ -52,11 +52,11 @@ afterwards, upon completion."}
                 (some? init) (doto (.add init))))))
 
 (defprotocol ExhaustiveSearch
-  (stop [this]))
+  (stop [this children]))
 
 (extend-protocol ExhaustiveSearch
-  Object (stop [this] (reduced this))
-  nil (stop [this] (reduced this)))
+  Object (stop [this children] (when (empty? children) (reduced this)))
+  nil (stop [this children] (when (empty? children) (reduced this))))
 
 (defprotocol Combinable
   (combine [this other])
@@ -96,14 +96,13 @@ afterwards, upon completion."}
 (defmacro worker [problem search-xf compare & args]
   `(loop [p# ~problem
           heap# (pm/priority-map-by ~compare)]
-     (if-let [children# (seq (children p#))]
-       (if-let [next-heap# (try (into heap# ~search-xf children#)
-                                (catch TimeoutException _#))]
-         (combine->recur p# next-heap# ~@args)
-         p#)
-       (if-let [result# (stop p#)]
+     (let [lazy-children# (children p#)]
+       (if-let [result# (stop p# lazy-children#)]
          result#
-         (combine->recur p# heap# ~@args)))))
+         (if-let [next-heap# (try (into heap# ~search-xf lazy-children#)
+                                  (catch TimeoutException _#))]
+           (combine->recur p# next-heap# ~@args)
+           p#)))))
 
 (defn async-worker [problem {:keys [search-xf control-chan compare]}]
   (async/go

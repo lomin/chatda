@@ -28,7 +28,7 @@
   p/Prioritizable
   (priority [this] (count (cnt:ancestors this)))
   p/ExhaustiveSearch
-  (stop [_] false)
+  (stop [_ _] false)
   p/Combinable
   (combine [this other]
     (+=cnt:count this other))

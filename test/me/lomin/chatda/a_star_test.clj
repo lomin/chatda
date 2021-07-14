@@ -108,8 +108,7 @@
     (+ costs (manhattan-distance graph current target)))
   search/Searchable
   (children [this]
-    (when (and (not (search/stop this))
-               (< costs (get @seen current Integer/MAX_VALUE)))
+    (when (< costs (get @seen current Integer/MAX_VALUE))
       (a-star/with-children
         (vswap! seen assoc current costs)
         (children this))))
@@ -120,7 +119,7 @@
     (a-star/with-xform-async
       (map #(assoc % :seen (volatile! @(:seen %))))))
   search/ExhaustiveSearch
-  (stop [this]
+  (stop [this _]
     (a-star/with-stop
       (and (= current target) this)))
   search/Combinable
