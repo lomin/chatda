@@ -1,5 +1,5 @@
 (ns me.lomin.chatda.search
-  ^{:doc    "Concurrency is the problem of scheduling multiple largely independent
+  ^{:doc "Concurrency is the problem of scheduling multiple largely independent
 tasks onto a usually smaller set of computational resources.
 Parallelism on the other hand means breaking a computational task down into several
 sub-tasks that can be processed independently and whose results are combined
@@ -15,14 +15,12 @@ afterwards, upon completion."}
   (children [self])
   (xform [self])
   (priority [self])
-  (stop [this children]))
+  (stop [this children])
+  (combine [this other]))
 
 (defprotocol AsyncSearchable
-  (xform-async [self]))
-
-(extend-type nil
-  Searchable
-  (children [_] nil))
+  (xform-async [self])
+  (combine-async [this other]))
 
 (deftype PriorityQueueBuffer [^long n ^java.util.PriorityQueue buf]
   async-protocols/Buffer
@@ -49,18 +47,6 @@ afterwards, upon completion."}
         (cond-> (new java.util.PriorityQueue (max 1 n)
                      ^java.util.Comparator (priority-comparator compare))
                 (some? init) (doto (.add init))))))
-
-(defprotocol Combinable
-  (combine [this other])
-  (combine-async [this other]))
-
-(extend-protocol Combinable
-  Object
-  (combine [_ other] other)
-  (combine-async [this other] (combine this other))
-  nil
-  (combine [_ other] other)
-  (combine-async [this other] (combine this other)))
 
 (defmacro offer-to [first-problem next-heap chan]
   `(let [[second-problem#] (peek ~next-heap)
@@ -160,16 +146,26 @@ afterwards, upon completion."}
 (defn chan-xform [init]
   (if (satisfies? AsyncSearchable init)
     (xform-async init)
-    (xform init)))
+    (map identity)))
+
+(defn check-config! [problem parallel? parallelism]
+  (if (and parallel?
+           (not (satisfies? AsyncSearchable problem)))
+    (throw (new IllegalArgumentException
+                (ex-info "Problems that do not implement AsyncSearchable
+                  must be searched sequential"
+                         {:parallelism parallelism
+                          :problem     problem})))))
 
 (defn parallel-depth-first-search
   ([{:keys [compare] :or {compare depth-first-comparator} :as init}
     {:keys [chan-size parallelism timeout]
      :or   {chan-size   10
             parallelism 4}}]
-   (let [xf (chan-xform init)
+   (let [parallel? (< 1 parallelism)
+         _ (check-config! init parallel? parallelism)
+         xf (chan-xform init)
          root-problem (transduce-1 xf init)
-         parallel? (< 1 parallelism)
          control-chan (when parallel?
                         (async/chan (priority-queue chan-size compare root-problem)
                                     xf))

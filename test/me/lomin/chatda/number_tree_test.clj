@@ -27,9 +27,10 @@
     (map #(assoc % :count (:value %))))
   (priority [this] (count (cnt:ancestors this)))
   (stop [_ _] false)
-  p/Combinable
   (combine [this other]
     (+=cnt:count this other))
+  search/AsyncSearchable
+  (xform-async [self] (search/xform self))
   (combine-async [this other]
     (p/combine this other)))
 
@@ -53,7 +54,11 @@
           (range 1 (inc branch))))
   (xform [_] (filter (comp even? :value)))
   (priority [this] (count (cnt:ancestors this)))
-  (stop [this children] (when (empty? children) (reduced this))))
+  (stop [this children] (when (empty? children) (reduced this)))
+  (combine [_ other] other)
+  search/AsyncSearchable
+  (xform-async [self] (search/xform self))
+  (combine-async [this other] (search/combine this other)))
 
 (defn search-root [branch-factor max-size]
   (map->ParallelNumberTreeSearch {:value    0
@@ -85,7 +90,7 @@
 
 (defn sequential-partial-sum [problem]
   (->> (sequential/sequential-backtracking-seq (search/xform problem)
-                                               (search/children problem))
+                                               (when problem (search/children problem)))
        (take-while some?)
        (map :value)
        (reduce + 0)))

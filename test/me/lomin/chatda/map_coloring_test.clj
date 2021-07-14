@@ -7,7 +7,7 @@
                      (sequence xform csps)]
               (cons $first
                     (sequential-backtracking-seq xform
-                                                 (concat (search/children $first)
+                                                 (concat (when $first (search/children $first))
                                                          $rest))))))
 
 (defn sequential-backtracking [csp]
@@ -64,7 +64,11 @@
   (children [this] (next-csps this))
   (xform [_] (filter consistent?))
   (priority [this] (count (remove nil? (vals (:assignment this)))))
-  (stop [this children] (when (empty? children) (reduced this))))
+  (stop [this children] (when (empty? children) (reduced this)))
+  (combine [_ other] other)
+  search/AsyncSearchable
+  (xform-async [self] (search/xform self))
+  (combine-async [this other] (search/combine this other)))
 
 (def csp (map->ParallelMapColoringCsp
            (init [:red :green :blue]

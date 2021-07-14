@@ -117,12 +117,11 @@
   (stop [this _]
     (a-star/with-stop
       (and (= current target) this)))
+  (combine [_ other] other)
   search/AsyncSearchable
   (xform-async [_]
     (a-star/with-xform-async
       (map #(assoc % :seen (volatile! @(:seen %))))))
-  search/Combinable
-  (combine [_ other] other)
   (combine-async [this other]
     (a-star/with-combine-async this other)))
 
