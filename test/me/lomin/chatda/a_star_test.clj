@@ -1,4 +1,6 @@
 (ns me.lomin.chatda.a-star-test
+  ^{:doc    "This test is based on
+  https://algorithms.discrete.ma.tum.de/graph-algorithms/spp-a-star/index_en.html"}
   (:require [clojure.test :refer :all]
             [clojure.string :as string]
             [me.lomin.chatda.search :as search]
@@ -35,12 +37,8 @@
              :edges       {}}
             (line-seq rdr))))
 
-(def node nil)
-(defmulti node (fn [x & args] (mapv type (cons x args))))
-(defmethod node [clojure.lang.IPersistentMap clojure.lang.Keyword] [g letter-or-name]
-  (get g (get g letter-or-name)))
-(defmethod node [clojure.lang.IPersistentMap java.lang.Long] [g index]
-  (get-in g index))
+(defn node [graph letter-or-name]
+  (get graph (get graph letter-or-name)))
 
 (defn index [g $node]
   (get g (node g $node)))
@@ -86,12 +84,14 @@
       (abs (- y0 y1)))))
 
 (deftest manhattan-distance-test
-  (is (= 20 (manhattan-distance [0 0] [10 10])))
-  (is (= 20 (manhattan-distance [10 10] [0 0])))
+  (is (= 20
+         (manhattan-distance [0 0] [10 10])
+         (manhattan-distance [10 10] [0 0])))
 
   (let [g (read-graph "resources/cities.txt")]
-    (is (= 202 (manhattan-distance g :London :Berlin)))
-    (is (= 202 (manhattan-distance g :Berlin :London)))))
+    (is (= 202
+           (manhattan-distance g :London :Berlin)
+           (manhattan-distance g :Berlin :London)))))
 
 (defn children [this]
   (let [g (:graph this)]
@@ -148,11 +148,24 @@
          (:path $))))
 
 (deftest shortest-travel-test
-  (let [options {:timeout     1000
-                 :parallelism 4
-                 :chan-size   4}]
-    (is (= [:a] (shortest-travel :London :London options)))
-    (is (= [:a :i] (shortest-travel :London :Dublin options)))
-    (is (= [:a :f :b] (shortest-travel :London :Berlin options)))
-    (is (= [:i :a :f :b :g :d] (shortest-travel :Dublin :Kiev options)))
-    (is (= [:j :b :g] (shortest-travel :Vienna :Minsk options)))))
+  (let [parallel-options {:timeout     1000
+                          :parallelism 4
+                          :chan-size   4}
+        sequential-options {:timeout     1000
+                            :parallelism 1
+                            :chan-size   1}]
+    (is (= [:a]
+           (shortest-travel :London :London parallel-options)
+           (shortest-travel :London :London sequential-options)))
+    (is (= [:a :i]
+           (shortest-travel :London :Dublin parallel-options)
+           (shortest-travel :London :Dublin sequential-options)))
+    (is (= [:a :f :b]
+           (shortest-travel :London :Berlin parallel-options)
+           (shortest-travel :London :Berlin sequential-options)))
+    (is (= [:i :a :f :b :g :d]
+           (shortest-travel :Dublin :Kiev parallel-options)
+           (shortest-travel :Dublin :Kiev sequential-options)))
+    (is (= [:j :b :g]
+           (shortest-travel :Vienna :Minsk parallel-options)
+           (shortest-travel :Vienna :Minsk sequential-options)))))
