@@ -1,4 +1,9 @@
 (ns me.lomin.chatda.search
+  ^{:doc    "Concurrency is the problem of scheduling multiple largely independent
+tasks onto a usually smaller set of computational resources.
+Parallelism on the other hand means breaking a computational task down into several
+sub-tasks that can be processed independently and whose results are combined
+afterwards, upon completion."}
   (:require [clojure.core.async :as async]
             [clojure.core.async.impl.protocols :as async-protocols]
             [clojure.data.priority-map :as pm])
