@@ -24,4 +24,12 @@
                                                     :chan-size   4
                                                     :timeout     10})
                :value
+               #_time)))
+
+    (is (> 1E50
+           (-> (ntt/search-root 20 5E300)
+               (search/parallel-depth-first-search {:parallelism 1
+                                                    :chan-size   1
+                                                    :timeout     10})
+               :value
                #_time)))))
