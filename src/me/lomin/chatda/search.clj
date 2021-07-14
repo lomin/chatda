@@ -65,35 +65,52 @@
   (combine [_ other] other)
   (combine-async [this other] (combine this other)))
 
-(defmacro combine->offer->recur [problem heap chan parallel?]
-  `(if (seq ~heap)
-     (let [first-problem# (combine ~problem (first (peek ~heap)))
-           next-heap# (pop ~heap)
-           [second-problem#] (peek next-heap#)
-           offer# (and second-problem# ~parallel? (async/offer! ~chan second-problem#))]
-       (cond
-         ;; second-problem# put onto chan: forget about second-problem#
-         offer# (recur first-problem# (pop next-heap#))
-         ;; channel full or no problems left: do not forget second-problem#
-         (or (not ~parallel?) (nil? offer#)) (recur first-problem# next-heap#)
-         ;; channel closed: stop immediately
-         :else first-problem#))
-     ~problem))
+(defmacro offer-to [first-problem next-heap chan]
+  `(let [[second-problem#] (peek ~next-heap)
+         offer# (and second-problem# (async/offer! ~chan second-problem#))]
+     (cond
+       ;; second-problem# was put onto chan, so forget about second-problem#
+       (true? offer#) (recur ~first-problem (pop ~next-heap))
+       ;; channel closed: stop immediately
+       (false? offer#) ~first-problem
+       ;; channel full or no problems left, so do not forget second-problem#
+       :else (recur ~first-problem ~next-heap))))
 
-(defn async-worker [{:keys [search-xf control-chan compare parallel?]} problem]
+(defmacro combine->recur [problem heap & [f & more :as body]]
+  (let [first-problem (gensym)
+        next-heap (gensym)
+        body (if (seq body)
+               (cons f (cons first-problem (cons next-heap more)))
+               `(recur ~first-problem ~next-heap))]
+    `(if (seq ~heap)
+       (let [~first-problem (combine ~problem (first (peek ~heap)))
+             ~next-heap (pop ~heap)]
+         ~body)
+       ~problem)))
+
+(defmacro worker [problem search-xf compare & args]
+  `(loop [p# ~problem
+         heap# (pm/priority-map-by ~compare)]
+    (if-let [children# (seq (children p#))]
+      (if-let [next-heap# (try (into heap# ~search-xf children#)
+                               (catch TimeoutException _#))]
+        (combine->recur p# next-heap# ~@args)
+        p#)
+      (if-let [result# (stop p#)]
+        result#
+        (combine->recur p# heap# ~@args)))))
+
+(defn async-worker [problem {:keys [search-xf control-chan compare]}]
   (async/go
     (try
-      (loop [p problem
-             heap (pm/priority-map-by compare)]
-        (if-let [$children (seq (children p))]
-          (if-let [next-heap (try (into heap search-xf $children)
-                                  (catch TimeoutException _))]
-            (combine->offer->recur p next-heap control-chan parallel?)
-            p)
-          (if-let [result (stop p)]
-            result
-            (combine->offer->recur p heap control-chan parallel?))))
+      (worker problem search-xf compare offer-to control-chan)
       (catch Exception e e))))
+
+(defn sync-worker [problem {:keys [search-xf compare]}]
+  (worker problem search-xf compare))
+
+(defn search-sequential [{:keys [root-problem] :as config}]
+  (sync-worker root-problem config))
 
 (defn transduce-1
   "apply a transducer on a single value"
@@ -111,7 +128,7 @@
       (async/alts!! (conj worker-pool control-chan))
       [(async/poll! control-chan) control-chan])))
 
-(defn rec:search
+(defn search-parallel
   [{:keys [root-problem control-chan parallelism] :as config}]
   (loop [problem root-problem
          worker-pool []]
@@ -123,7 +140,7 @@
         (instance? Throwable $val) (throw $val)
         (= ch control-chan) (recur problem
                                    (conj worker-pool
-                                         (async-worker config $val)))
+                                         (async-worker $val config)))
         :else (recur (combine-async problem $val)
                      (remove-worker-from worker-pool ch))))))
 
@@ -167,7 +184,9 @@
                  :parallelism  parallelism
                  :compare      compare}]
      (try
-       (rec:search config)
+       (if (< 1 parallelism)
+         (search-parallel config)
+         (search-sequential config))
        (finally
          (async/close! control-chan)))))
   ([init chan-size parallelism]
