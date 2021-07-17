@@ -5,11 +5,15 @@ Parallelism on the other hand means breaking a computational task down into seve
 sub-tasks that can be processed independently and whose results are combined
 afterwards, upon completion."}
   (:require [clojure.core.async :as async]
-            [clojure.core.async.impl.protocols :as async-protocols]
-            [clojure.data.priority-map :as pm])
-  (:import (java.util.concurrent TimeoutException)))
+            [clojure.core.async.impl.protocols :as async-protocols])
+  (:import (java.util.concurrent TimeoutException Executors TimeUnit ScheduledExecutorService)
+           (clojure.lang IPersistentStack Counted Seqable)
+           (java.util PriorityQueue Comparator)))
 
 #_(set! *warn-on-reflection* true)
+
+(defonce executor
+         (delay (Executors/newSingleThreadScheduledExecutor)))
 
 (defprotocol Searchable
   (children [self])
@@ -22,30 +26,51 @@ afterwards, upon completion."}
   (xform-async [self])
   (combine-async [this other]))
 
-(deftype PriorityQueueBuffer [^long n ^java.util.PriorityQueue buf]
+(declare priority-queue)
+
+(defn ->item+priority [item]
+  [item (priority item)])
+
+(deftype PriorityQueueBuffer
+  [^Comparator compare ^long n ^PriorityQueue buf]
   async-protocols/Buffer
-  (full? [this]
-    (>= (.size buf) n))
-  (remove! [this]
-    (.poll buf))
-  (add!* [this itm]
-    (.offer buf itm)
-    this)
-  (close-buf! [this])
-  clojure.lang.Counted
-  (count [this]
-    (.size buf)))
+  (full? [_] (if (neg? n) false (>= (.size buf) n)))
+  (remove! [_] (.poll buf))
+  (add!* [this itm] (.offer buf itm) this)
+  (close-buf! [_])
+  Counted
+  (count [_] (.size buf))
+  IPersistentStack
+  (peek [_] (when-let [item (.peek buf)] (->item+priority item)))
+  (pop [self] (.poll buf) self)
+  (cons [self item] (.offer buf item) self)
+  (empty [_] (priority-queue compare n))
+  (equiv [self other] (identical? self other))
+  Seqable
+  (seq [self]
+    (when-let [head (peek self)]
+      (cons head
+            (when (< 1 (.count self))
+              (lazy-seq
+                (let [iterator (.iterator buf)]
+                  (.next iterator)
+                  (map ->item+priority
+                       (iterator-seq iterator)))))))))
 
 (defn priority-comparator [compare]
   (fn [a b] (compare (priority a) (priority b))))
 
 (defn priority-queue
-  ([^long n ^java.util.Comparator compare]
-   (priority-queue n compare nil))
-  ([^long n ^java.util.Comparator compare init]
-   (new PriorityQueueBuffer n
-        (cond-> (new java.util.PriorityQueue (max 1 n)
-                     ^java.util.Comparator (priority-comparator compare))
+  ([^Comparator compare]
+   (priority-queue compare -1))
+  ([^Comparator compare ^long n]
+   (priority-queue compare n nil))
+  ([^Comparator compare ^long n init]
+   (new PriorityQueueBuffer
+        compare
+        n
+        (cond-> (new PriorityQueue (max 1 n)
+                     ^Comparator (priority-comparator compare))
                 (some? init) (doto (.add init))))))
 
 (defmacro offer-to [first-problem next-heap chan]
@@ -73,11 +98,11 @@ afterwards, upon completion."}
 
 (defmacro worker [problem search-xf compare & args]
   `(loop [p# ~problem
-          heap# (pm/priority-map-by ~compare)]
-     (let [lazy-children# (children p#)]
-       (if-let [result# (stop p# lazy-children#)]
+          heap# (priority-queue ~compare)]
+     (let [children# (children p#)]
+       (if-let [result# (stop p# children#)]
          result#
-         (if-let [next-heap# (try (into heap# ~search-xf lazy-children#)
+         (if-let [next-heap# (try (into heap# ~search-xf children#)
                                   (catch TimeoutException _#))]
            (combine->recur p# next-heap# ~@args)
            p#)))))
@@ -127,21 +152,23 @@ afterwards, upon completion."}
       result)))
 
 (def depth-first-comparator (fn [a b] (compare b a)))
-(def priority-xf (map (fn [x] [x (priority x)])))
 ;; create TimeoutException ahead of time and only once, since
 ;; creating an exception is expensive and we are not interested
 ;; in the stacktrace.
 (def timeout-exception (new TimeoutException))
 
-(defn timeout-xf [timeout control-chan]
-  (let [timed-out? (volatile! false)]
-    (async/go (async/<! (async/timeout timeout))
-              (when control-chan (async/close! control-chan))
-              (vreset! timed-out? true))
-    (map (fn [x]
-           (if @timed-out?
-             (throw timeout-exception)
-             x)))))
+(defn maybe-schedule [^Runnable f timeout]
+  (when timeout
+    (.schedule ^ScheduledExecutorService @executor
+               ^Runnable f
+               ^long timeout
+               TimeUnit/MILLISECONDS)))
+
+(defn timeout-xf [timed-out?]
+  (map (fn [x]
+         (if @timed-out?
+           (throw timeout-exception)
+           x))))
 
 (defn chan-xform [init]
   (if (satisfies? AsyncSearchable init)
@@ -152,6 +179,7 @@ afterwards, upon completion."}
   (if (and parallel?
            (not (satisfies? AsyncSearchable problem)))
     (throw (new IllegalArgumentException
+                ^Throwable
                 (ex-info "Problems that do not implement AsyncSearchable
                   must be searched sequential"
                          {:parallelism parallelism
@@ -167,11 +195,15 @@ afterwards, upon completion."}
          xf (chan-xform init)
          root-problem (transduce-1 xf init)
          control-chan (when parallel?
-                        (async/chan (priority-queue chan-size compare root-problem)
+                        (async/chan (priority-queue compare chan-size root-problem)
                                     xf))
+         timed-out? (when timeout (volatile! false))
+         maybe-future (maybe-schedule #(do (when control-chan (async/close! control-chan))
+                                           (vreset! timed-out? true))
+                                      timeout)
          search-xf (if timeout
-                     (comp (timeout-xf timeout control-chan) (xform init) priority-xf)
-                     (comp (xform init) priority-xf))
+                     (comp (timeout-xf timed-out?) (xform init))
+                     (comp (xform init)))
          config {:root-problem root-problem
                  :control-chan control-chan
                  :search-xf    search-xf
@@ -182,6 +214,7 @@ afterwards, upon completion."}
          (search-parallel config)
          (search-sequential config))
        (finally
+         (when maybe-future (future-cancel maybe-future))
          (when control-chan (async/close! control-chan))))))
   ([init chan-size parallelism]
    (parallel-depth-first-search init {:chan-size   chan-size

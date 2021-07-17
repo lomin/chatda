@@ -1,5 +1,5 @@
 (ns me.lomin.chatda.a-star-test
-  ^{:doc    "This test is based on
+  ^{:doc "This test is based on
   https://algorithms.discrete.ma.tum.de/graph-algorithms/spp-a-star/index_en.html"}
   (:require [clojure.test :refer :all]
             [clojure.string :as string]
@@ -69,7 +69,10 @@
     (is (= [[[:h :a] 1435]
             [[:f :a] 343]
             [[:i :a] 464]]
-           (incoming-edges g :London)))))
+           (incoming-edges g :London)))
+
+    (is (= [[[:i :a] 464]]
+           (outgoing-edges g :Dublin)))))
 
 (defn abs [number]
   (if (pos? number)
@@ -97,42 +100,32 @@
   (let [g (:graph this)]
     (map (fn [[[_ to] costs]]
            (-> this
-               (update :costs + costs)
+               (a-star/inc-costs costs)
                (assoc :current (node g to))
                (update :path conj (node g to))))
          (outgoing-edges g (:current this)))))
 
-(a-star/def-a-star CityTravelProblem [costs graph current target seen]
-  a-star/CostPredictable
-  (back+forward-costs [_]
-    (+ costs (manhattan-distance graph current target)))
+(a-star/def-a-star CityTravelProblem [graph current target]
+  a-star/AStar
+  (forward-costs [_] (manhattan-distance graph current target))
+  (a-star-identity [_] current)
   search/Searchable
-  (children [this]
-    (when (< costs (get @seen current Integer/MAX_VALUE))
-      (a-star/with-children
-        (vswap! seen assoc current costs)
-        (children this))))
-  (xform [_]
-    (a-star/with-xform))
-  (stop [this _]
-    (a-star/with-stop
-      (and (= current target) this)))
+  (children [this] (a-star/with-children (children this)))
+  (xform [_] (a-star/with-xform))
+  (stop [this _] (a-star/with-stop (and (= current target) this)))
   (combine [_ other] other)
   search/AsyncSearchable
-  (xform-async [_]
-    (a-star/with-xform-async
-      (map #(assoc % :seen (volatile! @(:seen %))))))
+  (xform-async [_] (a-star/with-xform-async))
   (combine-async [this other]
     (a-star/with-combine-async this other)))
 
 (defn city-travel-problem [g from to]
-  (-> (map->CityTravelProblem {:costs   0
-                               :graph   g
-                               :current (node g from)
-                               :target  (node g to)
-                               :seen    (volatile! {})
-                               :path    [from]})
-      (a-star/init)))
+  (let [init-problem (-> (map->CityTravelProblem {:graph   g
+                                                  :current (node g from)
+                                                  :target  (node g to)
+                                                  :path    [from]})
+                         (a-star/init))]
+    init-problem))
 
 (defn shortest-travel
   ([from to] (shortest-travel from to {}))
@@ -162,7 +155,9 @@
            (shortest-travel :London :Berlin sequential-options)))
     (is (= [:i :a :f :b :g :d]
            (shortest-travel :Dublin :Kiev parallel-options)
-           (shortest-travel :Dublin :Kiev sequential-options)))
+           (shortest-travel :Dublin :Kiev {:timeout     1000
+                                           :parallelism 1
+                                           :chan-size   1})))
     (is (= [:j :b :g]
            (shortest-travel :Vienna :Minsk parallel-options)
            (shortest-travel :Vienna :Minsk sequential-options)))))

@@ -14,22 +14,29 @@
                            (pm/priority-map-by search/depth-first-comparator
                                                :a [3 2] :b [2 3] :c [4 1] :d [4 0]))))))
 
+(defn search-with-timeout [{:keys [timeout] :as config}]
+  (let [start-time (. System (currentTimeMillis))
+        result (-> (ntt/search-root 20 5E300)
+                   (search/parallel-depth-first-search config)
+                   :value)
+        end-time (. System (currentTimeMillis))
+        duration (- end-time start-time)
+        accepted-duration (* timeout 2)]
+    [result duration accepted-duration]))
+
 ;; If the timeout timeout does not take effect, this test takes about
 ;; 1 second on my tiny machine.
 (deftest timeout-test
-  (testing "timeout takes effect before computation finishes"
-    (is (> 1E200
-           (-> (ntt/search-root 20 5E300)
-               (search/parallel-depth-first-search {:parallelism 4
-                                                    :chan-size   4
-                                                    :timeout     10})
-               :value
-               #_time)))
+  (let [[result duration accepted-duration]
+        (search-with-timeout {:parallelism 100
+                              :chan-size   100
+                              :timeout     50})]
+    (is (> 1E200 result))
+    (is (<= duration accepted-duration)))
 
-    (is (> 1E200
-           (-> (ntt/search-root 20 5E300)
-               (search/parallel-depth-first-search {:parallelism 1
-                                                    :chan-size   1
-                                                    :timeout     10})
-               :value
-               #_time)))))
+  (let [[result duration accepted-duration]
+        (search-with-timeout {:parallelism 1
+                              :chan-size   1
+                              :timeout     50})]
+    (is (> 1E200 result))
+    (is (<= duration accepted-duration))))
