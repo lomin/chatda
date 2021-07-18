@@ -1,128 +1,80 @@
 (ns me.lomin.chatda.number-tree-test
   (:refer-clojure :exclude [ancestors])
   (:require [clojure.test :refer :all]
-            [me.lomin.chatda.map-coloring-test :as sequential]
-            [me.lomin.chatda.search :as p]
-            [me.lomin.chatda.search :as search]))
+            [clojure.test.check.clojure-test :as check]
+            [me.lomin.chatda.search :as search]
+            [clojure.test.check.generators :as gen]
+            [clojure.test.check.properties :as prop]))
 
-(defn cnt:parent [{:keys [value branch] :as problem}]
-  (when (pos? value)
-    (assoc problem :value (bigint (/ (dec value) branch)))))
+(defn partial-sum [n]
+  (/ (* n (inc n)) 2))
 
-(defn cnt:ancestors [problem]
-  (take-while some?
-              (rest (iterate cnt:parent problem))))
+(defn abs [number] (if (pos? number) number (* -1 number)))
 
-(defn +=cnt:count [self other]
-  (update other :count + (:count self)))
-
-(defrecord CountNumberTreeSearch []
-  search/Searchable
-  (children [{:keys [value branch max-size] :as problem}]
-    (map (partial assoc problem :value)
-         (range (inc (* branch value))
-                (inc (min (* branch (inc value))
-                          max-size)))))
-  (xform [_]
-    (map #(assoc % :count (:value %))))
-  (priority [this] (count (cnt:ancestors this)))
-  (stop [_ _] false)
-  (combine [this other]
-    (+=cnt:count this other))
-  search/AsyncSearchable
-  (xform-async [self] (search/xform self))
-  (combine-async [this other]
-    (p/combine this other)))
-
-(defn cnt:count-root [branch-factor max-size]
-  (map->CountNumberTreeSearch {:value    0
-                               :branch   branch-factor
-                               :max-size max-size}))
-
-(defn cnt:child-value [value branch-factor child-index]
+(defn child-value [value branch-factor child-index]
   (+' (*' branch-factor value) child-index))
 
-(defrecord ParallelNumberTreeSearch []
+(defrecord ParallelNumberTreeSearch [value branch max-size]
   search/Searchable
-  (children [{:keys [value branch max-size] :as problem}]
-    (into (list)
-          (comp (map (fn [i]
-                       (assoc problem
-                         :value
-                         (cnt:child-value value branch i))))
-                (filter (fn [{v :value}] (<= v max-size))))
-          (range 1 (inc branch))))
-  (xform [_] (filter (comp even? :value)))
-  (priority [this] (count (cnt:ancestors this)))
-  (stop [this children] (when (empty? children) (reduced this)))
-  (combine [_ other] other)
+  (children [problem]
+    (map (fn [i]
+           (assoc problem
+             :value
+             (child-value value branch i)))
+         (range 1 (inc branch))))
+  (xform [_] (comp (filter #(<= (:value %) max-size))
+                   (map #(assoc % :partial-sum (:value %)))))
+  (priority [this] (abs (- (:value this) max-size)))
+  (stop [this _] (when (<= max-size value) this))
+  (combine [self other]
+    (update other :partial-sum + (:partial-sum self)))
   search/AsyncSearchable
-  (xform-async [self] (search/xform self))
-  (combine-async [this other] (search/combine this other)))
+  (xform-async [_] (map #(assoc % :partial-sum (:value %))))
+  (combine-async [this other]
+    (if (< (search/priority this) (search/priority other))
+      (search/combine other this)
+      (search/combine this other))))
 
-(defn search-root [branch-factor max-size]
-  (map->ParallelNumberTreeSearch {:value    0
-                                  :branch   branch-factor
-                                  :max-size max-size}))
+(defn make-parallel-number-tree-search-problem [branch-factor max-size]
+  (map->ParallelNumberTreeSearch {:value       0
+                                  :partial-sum 0
+                                  :branch      branch-factor
+                                  :max-size    max-size}))
 
-(deftest sequential-depth-first-search-test
-  (let [branch-factor 21
-        max-value 100000000
-        _ (prn "sequential")
-        result (time (sequential/sequential-backtracking (search-root branch-factor max-value)))]
-    (prn (:value result))
-    (is (empty? (search/children result)))
-    (is (even? (:value result)))
-    (is (<= (:value result) max-value))))
+(defmacro make-reporter-fn [make-expected make-actual]
+  `(fn [m#]
+     (when (= :shrunk (:type m#))
+       (let [input# (-> m# :shrunk :smallest)]
+         (is (= (apply ~make-expected input#)
+                (apply ~make-actual input#)))))))
 
-(deftest parallel-depth-first-search-test
-  (let [branch-factor 21
-        max-value 100000000
-        _ (prn "parallel")
-        result (time (p/parallel-depth-first-search (search-root branch-factor
-                                                                 max-value)
-                                                    5
-                                                    5))]
-    (prn (:value result))
-    (is (empty? (search/children result)))
-    (is (even? (:value result)))
-    (is (<= (:value result) max-value))))
+(defn search-number-tree-parallel
+  ([n parallelism chan-size branch-factor]
+   (search-number-tree-parallel identity n parallelism chan-size branch-factor))
+  ([select n parallelism chan-size branch-factor]
+   (-> (make-parallel-number-tree-search-problem branch-factor n)
+       (search/parallel-depth-first-search {:parallelism parallelism
+                                            :chan-size   chan-size})
+       select)))
 
-(defn sequential-partial-sum [problem]
-  (->> (sequential/sequential-backtracking-seq (search/xform problem)
-                                               (when problem (search/children problem)))
-       (take-while some?)
-       (map :value)
-       (reduce + 0)))
+(defn number-tree-properties [select n & _]
+  (cond
+    (= select :value) n
+    (= select :partial-sum) (partial-sum n)))
 
-(deftest count-numbers-test
-
-  (is (= 105 (time (sequential-partial-sum (cnt:count-root 5 14)))))
-
-  (is (= 10 (-> (cnt:count-root 1 4)
-                (p/parallel-depth-first-search 5 5)
-                :count)))
-  (is (= 10 (-> (cnt:count-root 2 4)
-                (p/parallel-depth-first-search 5 5)
-                :count)))
-  (is (= 10 (-> (cnt:count-root 3 4)
-                (p/parallel-depth-first-search 5 5)
-                :count)))
-
-  (is (= 105 (-> (cnt:count-root 5 14)
-                 (p/parallel-depth-first-search 20 10)
-                 :count
-                 (time)))))
-
+(check/defspec number-tree-test
+  {:num-tests   100
+   :max-size    10000
+   :reporter-fn (make-reporter-fn number-tree-properties
+                                  search-number-tree-parallel)}
+  (prop/for-all [select (gen/elements #{:value :partial-sum})
+                 n (gen/fmap inc gen/nat)
+                 parallelism (gen/fmap inc gen/nat)
+                 chan-size (gen/fmap inc gen/nat)
+                 branch-factor (gen/fmap inc gen/nat)]
+    (= (number-tree-properties select n)
+       (search-number-tree-parallel select n parallelism chan-size branch-factor))))
 
 (comment
-  (let [csp (cnt:count-root 11 1000000)]
-    (send p/max-worker-size (constantly 0))
-    (prn "sequential")
-    ; (prn (time (sequential-sum csp)))
-    (prn "parallel")
-    (prn (-> csp
-             (p/parallel-depth-first-search 1 4)
-             :count
-             (time))
-         @p/max-worker-size)))
+  (require '[clj-async-profiler.core :as prof])
+  (prn (time (search-number-tree-parallel :value 2000000 2 1 2))))

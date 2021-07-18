@@ -16,7 +16,7 @@
 
 (defn search-with-timeout [{:keys [timeout] :as config}]
   (let [start-time (. System (currentTimeMillis))
-        result (-> (ntt/search-root 20 5E300)
+        result (-> (ntt/make-parallel-number-tree-search-problem 20 5E300)
                    (search/parallel-depth-first-search config)
                    :value)
         end-time (. System (currentTimeMillis))
