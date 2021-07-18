@@ -99,11 +99,11 @@ afterwards, upon completion."}
         body (if (seq body)
                (cons f (cons first-problem (cons next-heap more)))
                `(recur ~first-problem ~next-heap))]
-    `(if (seq ~heap)
-       (let [~first-problem (combine ~problem (first (peek ~heap)))
-             ~next-heap (pop ~heap)]
-         ~body)
-       ~problem)))
+    `(if-let [heap-head# (peek ~heap)]
+      (let [~first-problem (combine ~problem (first heap-head#))
+            ~next-heap (pop ~heap)]
+        ~body)
+      ~problem)))
 
 (defmacro worker [problem search-xf compare & args]
   `(loop [p# ~problem
