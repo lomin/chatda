@@ -7,7 +7,7 @@ afterwards, upon completion."}
   (:require [clojure.core.async :as async]
             [clojure.core.async.impl.protocols :as async-protocols])
   (:import (java.util.concurrent TimeoutException Executors TimeUnit ScheduledExecutorService)
-           (clojure.lang IPersistentStack Counted Seqable)
+           (clojure.lang IPersistentStack Counted Seqable IEditableCollection ITransientCollection IMeta IObj)
            (java.util PriorityQueue Comparator)))
 
 #_(set! *warn-on-reflection* true)
@@ -46,6 +46,15 @@ afterwards, upon completion."}
   (cons [self item] (.offer buf item) self)
   (empty [_] (priority-queue compare n))
   (equiv [self other] (identical? self other))
+  IEditableCollection
+  (asTransient [self] self)
+  ITransientCollection
+  (conj [self item] (.offer buf item) self)
+  (persistent [self] self)
+  IMeta
+  (meta [_] {})
+  IObj
+  (withMeta [self _] self)
   Seqable
   (seq [self]
     (when-let [head (peek self)]
@@ -75,7 +84,7 @@ afterwards, upon completion."}
 
 (defmacro offer-to [first-problem next-heap chan]
   `(let [[second-problem#] (peek ~next-heap)
-         offer# (and second-problem# (async/offer! ~chan second-problem#))]
+         offer# (when second-problem# (async/offer! ~chan second-problem#))]
      (cond
        ;; second-problem# was put onto chan, so forget about second-problem#
        (true? offer#) (recur ~first-problem (pop ~next-heap))
