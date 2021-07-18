@@ -11,7 +11,7 @@
                   "generated/*" '"*\\.iml"})
 
 (defn rsync [src dest target user]
-  (-> ["rsync" "-azP" "--delete"]
+  (-> ["rsync" "-azP" "--copy-links" "--delete"]
       (into (interleave (repeat "--exclude") exclusions))
       (into [src (str user "@" dest ":/home/" user target)])))
 
