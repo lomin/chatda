@@ -26,7 +26,7 @@ afterwards, upon completion."}
   (xform-async [self])
   (combine-async [this other]))
 
-(declare priority-queue)
+(declare heap)
 
 (defn ->item+priority [item]
   [item (priority item)])
@@ -39,12 +39,20 @@ afterwards, upon completion."}
   (add!* [this itm] (.offer buf itm) this)
   (close-buf! [_])
   Counted
+  (count [_] (.size buf)))
+
+;; DO NOT USE Heap OUTSIDE THIS NAMESPACE!
+;; It does not properly comply to the contract of the implemented
+;; protocols in favor of performance optimization.
+(deftype Heap
+  [^Comparator compare ^PriorityQueue buf]
+  Counted
   (count [_] (.size buf))
   IPersistentStack
   (peek [_] (when-let [item (.peek buf)] (->item+priority item)))
   (pop [self] (.poll buf) self)
   (cons [self item] (.offer buf item) self)
-  (empty [_] (priority-queue compare n))
+  (empty [_] (heap compare))
   (equiv [self other] (identical? self other))
   IEditableCollection
   (asTransient [self] self)
@@ -82,6 +90,13 @@ afterwards, upon completion."}
                      ^Comparator (priority-comparator compare))
                 (some? init) (doto (.add init))))))
 
+(defn heap
+  ([^Comparator compare]
+   (new Heap
+        compare
+        (new PriorityQueue
+             ^Comparator (priority-comparator compare)))))
+
 (defmacro offer-to [first-problem next-heap chan]
   `(let [[second-problem#] (peek ~next-heap)
          offer# (when second-problem# (async/offer! ~chan second-problem#))]
@@ -107,7 +122,7 @@ afterwards, upon completion."}
 
 (defmacro worker [problem search-xf compare & args]
   `(loop [p# ~problem
-          heap# (priority-queue ~compare)]
+          heap# (heap ~compare)]
      (let [children# (children p#)]
        (if-let [result# (stop p# children#)]
          result#
@@ -160,7 +175,11 @@ afterwards, upon completion."}
       @result
       result)))
 
+;; (compare a b) returns a comparator that favors the smaller element,
+;; but if we want to favor an element deeper in the search space (further
+;; from the root, i.e. with a higher depth value), we have to switch the arguments:
 (def depth-first-comparator (fn [a b] (compare b a)))
+
 ;; create TimeoutException ahead of time and only once, since
 ;; creating an exception is expensive and we are not interested
 ;; in the stacktrace.
