@@ -69,13 +69,15 @@ afterwards, upon completion."}
 ;; used other than the fine-tuned accesses in this namespace, the abstraction
 ;; will probably break.
 ;; Heap behaves like a mutable variable with the API of a transient, but without
-;; its semantic. This is reflected in that calling (persistent! heap), the same
-;; instance of Heap will be returned.
+;; its semantics. For example, `(persistent! heap)` will return the same heap.
 ;; Neither Heap nor its underlying java.util.PriorityQueue are synchronized.
 ;; This is fine in this namespace, since we guarantee that a Heap has only
 ;; exactly one accessor, i.e. we guarantee thread isolation.
 ;; Why do implement our heap, if there is `clojure.data.priority-map`?
-;; Because `clojure.data.priority-map`
+;; Because `clojure.data.priority-map` manages two hash maps:
+;; One from priority to element and one from element to priority. The latter
+;; results in a lot of hashing of the element, which gets slower the bigger the
+;; element  gets. This leads to a performance bottleneck.
 (deftype Heap
   [^Comparator compare ^PriorityQueue buf]
   Counted
@@ -138,7 +140,7 @@ afterwards, upon completion."}
      `(let [[second-problem#] (peek ~next-heap)
             offer# (when second-problem# (async/offer! ~chan second-problem#))]
         (cond
-          ;; channel full or no problems left, so do not forget second-problem#
+          ;; channel full or no problems left, so recur regularly
           (nil? offer#) (recur ~first-problem ~next-heap)
           ;; second-problem# was put onto chan, so forget about second-problem#
           (true? offer#) (recur ~first-problem (pop ~next-heap))
