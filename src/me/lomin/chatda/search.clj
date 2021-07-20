@@ -145,10 +145,10 @@ afterwards, upon completion."}
                (cons f (cons first-problem (cons next-heap more)))
                `(recur ~first-problem ~next-heap))]
     `(if-let [heap-head# (peek ~heap)]
-      (let [~first-problem (combine ~problem (first heap-head#))
-            ~next-heap (pop ~heap)]
-        ~body)
-      ~problem)))
+       (let [~first-problem (combine ~problem (first heap-head#))
+             ~next-heap (pop ~heap)]
+         ~body)
+       ~problem)))
 
 (defmacro worker [problem search-xf compare & args]
   `(loop [p# ~problem
