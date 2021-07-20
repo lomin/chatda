@@ -4,7 +4,7 @@
     <setting name="displayName" value="profile" />
     <setting name="replType" value="NREPL" />
     <setting name="execution" value="INTELLIJ" />
-    <setting name="jvmArgs" value="-Djdk.attach.allowAttachSelf -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints -XX:-OmitStackTraceInFastThrow" />
+    <setting name="jvmArgs" value="-Djdk.attach.allowAttachSelf -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints -XX:-OmitStackTraceInFastThrow -Dclojure.core.async.go-checking=true" />
     <setting name="parameters" value="" />
     <setting name="workingDir" value="$PROJECT_DIR$" />
     <setting name="profiles" value="" />
