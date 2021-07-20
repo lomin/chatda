@@ -253,18 +253,18 @@ afterwards, upon completion."}
          _ (check-config! init parallel? parallelism)
          xf (chan-xform init)
          root-problem (transduce-1 xf init)
-         control-chan (when parallel?
-                        (async/chan (priority-queue compare chan-size root-problem)
-                                    xf))
+         maybe-control-chan (when parallel?
+                              (async/chan (priority-queue compare chan-size root-problem)
+                                          xf))
          timed-out? (when timeout (volatile! false))
-         maybe-future (maybe-schedule #(do (when control-chan (async/close! control-chan))
+         maybe-future (maybe-schedule #(do (when maybe-control-chan (async/close! maybe-control-chan))
                                            (vreset! timed-out? true))
                                       timeout)
          search-xf (if timeout
                      (comp (timeout-xf timed-out?) (xform init))
                      (comp (xform init)))
          config {:root-problem root-problem
-                 :control-chan control-chan
+                 :control-chan maybe-control-chan
                  :search-xf    search-xf
                  :parallelism  parallelism
                  :compare      compare}]
@@ -274,7 +274,7 @@ afterwards, upon completion."}
          (search-sequential config))
        (finally
          (when maybe-future (future-cancel maybe-future))
-         (when control-chan (async/close! control-chan))))))
+         (when maybe-control-chan (async/close! maybe-control-chan))))))
   ([init chan-size parallelism]
    (search init {:chan-size   chan-size
                  :parallelism parallelism})))
