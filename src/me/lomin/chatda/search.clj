@@ -212,9 +212,11 @@ afterwards, upon completion."}
 ;; from the root, i.e. with a higher depth value), we have to switch the arguments:
 (def depth-first-comparator (fn [a b] (compare b a)))
 
-;; create TimeoutException ahead of time and only once, since
+;; Creating TimeoutException ahead of time and only once, since
 ;; creating an exception is expensive and we are not interested
-;; in the stacktrace.
+;; in the stacktrace. This significantly reduces the latency
+;; between the moment of the timeout and the unblocking of the
+;; main thread.
 (def timeout-exception (new TimeoutException))
 
 (defn search-in-parallel? [parallelism]
