@@ -41,9 +41,21 @@ afterwards, upon completion."}
   Counted
   (count [_] (.size buf)))
 
+(declare make-heap)
 ;; DO NOT USE Heap OUTSIDE THIS NAMESPACE!
 ;; It does not properly comply to the contract of the implemented
-;; protocols in favor of performance optimization.
+;; protocols in favor of performance optimization. The use of Heap in this
+;; namespace is intended to look like idiomatic Clojure code, but if it is
+;; used other than the fine-tuned accesses in this namespace, the abstraction
+;; will probably break.
+;; Heap behaves like a mutable variable with the API of a transient, but without
+;; its semantic. This is reflected in that calling (persistent! heap), the same
+;; instance of Heap will be returned.
+;; Neither Heap nor its underlying java.util.PriorityQueue are synchronized.
+;; This is fine in this namespace, since we guarantee that a Heap has only
+;; exactly one accessor, i.e. we guarantee thread isolation.
+;; Why do implement our heap, if there is `clojure.data.priority-map`?
+;; Because `clojure.data.priority-map`
 (deftype Heap
   [^Comparator compare ^PriorityQueue buf]
   Counted
@@ -52,7 +64,7 @@ afterwards, upon completion."}
   (peek [_] (when-let [item (.peek buf)] (->item+priority item)))
   (pop [self] (.poll buf) self)
   (cons [self item] (.offer buf item) self)
-  (empty [_] (heap compare))
+  (empty [_] (make-heap compare))
   (equiv [self other] (identical? self other))
   IEditableCollection
   (asTransient [self] self)
@@ -90,7 +102,7 @@ afterwards, upon completion."}
                      ^Comparator (priority-comparator compare))
                 (some? init) (doto (.add init))))))
 
-(defn heap
+(defn make-heap
   ([^Comparator compare]
    (new Heap
         compare
@@ -122,7 +134,7 @@ afterwards, upon completion."}
 
 (defmacro worker [problem search-xf compare & args]
   `(loop [p# ~problem
-          heap# (heap ~compare)]
+          heap# (make-heap ~compare)]
      (let [children# (children p#)]
        (if-let [result# (stop p# children#)]
          result#
