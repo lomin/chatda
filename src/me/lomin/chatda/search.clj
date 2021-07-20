@@ -266,20 +266,17 @@ afterwards, upon completion."}
 
 (defn search
   ([{:keys [compare] :or {compare depth-first-comparator} :as init}
-    {:keys [parallelism timeout] :as config
+    {:keys [parallelism timeout] :as partial-config
      :or   {parallelism 1}}]
    (check-config! init parallelism)
-   (let [{search-with :search-alg :as config'}
-         (cond-> (init! config init parallelism compare)
+   (let [{search-with :search-alg :as config}
+         (cond-> (init! partial-config init parallelism compare)
                  (search-in-parallel? parallelism) add-async-config
                  timeout add-timeout-config)]
      (try
-       (search-with config')
+       (search-with config)
        (finally
-         (when-let [timeout-future (:timeout-future config')]
-           (future-cancel timeout-future))
-         (when-let [control-chan (:control-chan config')]
-           (async/close! control-chan))))))
+         (some-> config :timeout-future future-cancel)
+         (some-> config :control-chan async/close!)))))
   ([init chan-size parallelism]
-   (search init {:chan-size   chan-size
-                 :parallelism parallelism})))
+   (search init {:chan-size chan-size :parallelism parallelism})))
