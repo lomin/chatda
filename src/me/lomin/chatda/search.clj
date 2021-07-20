@@ -26,11 +26,6 @@ afterwards, upon completion."}
   (xform-async [self])
   (combine-async [this other]))
 
-(declare heap)
-
-(defn ->item+priority [item]
-  [item (priority item)])
-
 (deftype PriorityQueueBuffer
   [^Comparator compare ^long n ^PriorityQueue buf]
   async-protocols/Buffer
@@ -42,6 +37,8 @@ afterwards, upon completion."}
   (count [_] (.size buf)))
 
 (declare make-heap)
+(defn heap-item->item+priority [item] [item (priority item)])
+
 ;; DO NOT USE Heap OUTSIDE THIS NAMESPACE!
 ;; It does not properly comply to the contract of the implemented
 ;; protocols in favor of performance optimization. The use of Heap in this
@@ -61,7 +58,7 @@ afterwards, upon completion."}
   Counted
   (count [_] (.size buf))
   IPersistentStack
-  (peek [_] (when-let [item (.peek buf)] (->item+priority item)))
+  (peek [_] (when-let [item (.peek buf)] (heap-item->item+priority item)))
   (pop [self] (.poll buf) self)
   (cons [self item] (.offer buf item) self)
   (empty [_] (make-heap compare))
@@ -83,7 +80,7 @@ afterwards, upon completion."}
               (lazy-seq
                 (let [iterator (.iterator buf)]
                   (.next iterator)
-                  (map ->item+priority
+                  (map heap-item->item+priority
                        (iterator-seq iterator)))))))))
 
 (defn priority-comparator [compare]
