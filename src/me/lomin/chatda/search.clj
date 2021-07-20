@@ -131,12 +131,12 @@ afterwards, upon completion."}
   `(let [[second-problem#] (peek ~next-heap)
          offer# (when second-problem# (async/offer! ~chan second-problem#))]
      (cond
+       ;; channel full or no problems left, so do not forget second-problem#
+       (nil? offer#) (recur ~first-problem ~next-heap)
        ;; second-problem# was put onto chan, so forget about second-problem#
        (true? offer#) (recur ~first-problem (pop ~next-heap))
        ;; channel closed: stop immediately
-       (false? offer#) ~first-problem
-       ;; channel full or no problems left, so do not forget second-problem#
-       :else (recur ~first-problem ~next-heap))))
+       (false? offer#) ~first-problem)))
 
 (defmacro combine->recur [problem heap & [f & more :as body]]
   (let [first-problem (gensym)
