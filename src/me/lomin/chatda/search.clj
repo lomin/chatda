@@ -243,7 +243,7 @@ afterwards, upon completion."}
                          {:parallelism parallelism
                           :problem     problem})))))
 
-(defn parallel-depth-first-search
+(defn search
   ([{:keys [compare] :or {compare depth-first-comparator} :as init}
     {:keys [chan-size parallelism timeout]
      :or   {chan-size   10
@@ -276,5 +276,5 @@ afterwards, upon completion."}
          (when maybe-future (future-cancel maybe-future))
          (when control-chan (async/close! control-chan))))))
   ([init chan-size parallelism]
-   (parallel-depth-first-search init {:chan-size   chan-size
-                                      :parallelism parallelism})))
+   (search init {:chan-size   chan-size
+                 :parallelism parallelism})))

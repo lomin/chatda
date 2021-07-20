@@ -132,9 +132,9 @@
   ([from to options]
    (as-> (read-graph "resources/cities.txt") $
          (city-travel-problem $ (node $ from) (node $ to))
-         (search/parallel-depth-first-search $
-                                             (merge {:parallelism 1 :chan-size 1 :timeout 1000}
-                                                    options))
+         (search/search $
+                        (merge {:parallelism 1 :chan-size 1 :timeout 1000}
+                               options))
          (:path $))))
 
 (deftest shortest-travel-test

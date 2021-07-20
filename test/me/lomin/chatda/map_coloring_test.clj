@@ -101,6 +101,6 @@
   (is (= true
          (-> csp
              (map->ParallelMapColoringCsp)
-             (search/parallel-depth-first-search 2 2)
+             (search/search 2 2)
              (time)
              (complete-consistent?)))))

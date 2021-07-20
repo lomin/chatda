@@ -53,8 +53,8 @@
    (search-number-tree-parallel identity n parallelism chan-size branch-factor))
   ([select n parallelism chan-size branch-factor]
    (-> (make-parallel-number-tree-search-problem branch-factor n)
-       (search/parallel-depth-first-search {:parallelism parallelism
-                                            :chan-size   chan-size})
+       (search/search {:parallelism parallelism
+                       :chan-size   chan-size})
        select)))
 
 (defn number-tree-properties [select n & _]
