@@ -233,24 +233,24 @@ afterwards, upon completion."}
     (xform-async init)
     (map identity)))
 
-(defn check-config! [problem parallel? parallelism]
-  (if (and parallel?
+(defn check-config+init! [problem parallelism]
+  (if (and (< 1 parallelism)
            (not (satisfies? AsyncSearchable problem)))
     (throw (new IllegalArgumentException
                 ^Throwable
                 (ex-info "Problems that do not implement AsyncSearchable
-                  must be searched sequential"
+                  must be searched sequentially"
                          {:parallelism parallelism
-                          :problem     problem})))))
+                          :problem     problem})))
+    @init-custom-thread-pool-executor))
 
 (defn search
   ([{:keys [compare] :or {compare depth-first-comparator} :as init}
     {:keys [chan-size parallelism timeout]
      :or   {chan-size   10
             parallelism 4}}]
-   @init-custom-thread-pool-executor
+   (check-config+init! init parallelism)
    (let [parallel? (< 1 parallelism)
-         _ (check-config! init parallel? parallelism)
          xf (chan-xform init)
          root-problem (transduce-1 xf init)
          maybe-control-chan (when parallel?
