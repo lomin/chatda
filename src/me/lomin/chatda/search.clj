@@ -14,6 +14,8 @@ afterwards, upon completion."}
 
 #_(set! *warn-on-reflection* true)
 
+(def ^:dynamic *force-parallel-search?* false)
+
 (defn make-switching-executor [delayed-core-async-executor]
   (delay (let [core-async-executor @delayed-core-async-executor
                opts {:init-fn
@@ -215,66 +217,69 @@ afterwards, upon completion."}
 ;; in the stacktrace.
 (def timeout-exception (new TimeoutException))
 
-(defn maybe-schedule [^Runnable f timeout]
-  (when timeout
-    (.schedule ^ScheduledExecutorService @timeout-executor
-               ^Runnable f
-               ^long timeout
-               TimeUnit/MILLISECONDS)))
+(defn search-in-parallel? [parallelism]
+  (or (< 1 parallelism) *force-parallel-search?*))
 
-(defn timeout-xf [timed-out?]
-  (map (fn [x]
-         (if @timed-out?
-           (throw timeout-exception)
-           x))))
-
-(defn chan-xform [init]
-  (if (satisfies? AsyncSearchable init)
-    (xform-async init)
-    (map identity)))
-
-(defn check-config+init! [problem parallelism]
-  (if (and (< 1 parallelism)
-           (not (satisfies? AsyncSearchable problem)))
+(defn check-config! [problem parallelism]
+  (when (and (search-in-parallel? parallelism)
+             (not (satisfies? AsyncSearchable problem)))
     (throw (new IllegalArgumentException
                 ^Throwable
                 (ex-info "Problems that do not implement AsyncSearchable
                   must be searched sequentially"
                          {:parallelism parallelism
-                          :problem     problem})))
-    @init-custom-thread-pool-executor))
+                          :problem     problem})))))
+
+(defn init! [config init-problem parallelism compare]
+  @init-custom-thread-pool-executor
+  (merge {:search-alg   search-sequential
+          :root-problem init-problem
+          :parallelism  parallelism
+          :chan-size    1
+          :search-xf    (xform init-problem)
+          :compare      compare
+          :timeout      nil
+          :control-chan nil}
+         config))
+
+(defn add-async-config [{:keys [root-problem compare chan-size] :as config}]
+  (let [xf (xform-async root-problem)
+        root-problem' (transduce-1 xf root-problem)]
+    (-> config
+        (assoc :search-alg search-parallel)
+        (assoc :root-problem root-problem')
+        (assoc :control-chan
+               (async/chan (priority-queue compare chan-size root-problem')
+                           xf)))))
+
+(defn add-timeout-config [{:keys [timeout control-chan] :as config}]
+  (let [timed-out? (volatile! false)
+        timeout-xf (map (fn [x] (if @timed-out? (throw timeout-exception) x)))]
+    (-> config
+        (assoc :timeout-future
+               (.schedule ^ScheduledExecutorService @timeout-executor
+                          ^Runnable #(do (when control-chan (async/close! control-chan))
+                                         (vreset! timed-out? true))
+                          ^long timeout
+                          TimeUnit/MILLISECONDS))
+        (update :search-xf #(comp timeout-xf %)))))
 
 (defn search
   ([{:keys [compare] :or {compare depth-first-comparator} :as init}
-    {:keys [chan-size parallelism timeout]
-     :or   {chan-size   10
-            parallelism 4}}]
-   (check-config+init! init parallelism)
-   (let [parallel? (< 1 parallelism)
-         xf (chan-xform init)
-         root-problem (transduce-1 xf init)
-         maybe-control-chan (when parallel?
-                              (async/chan (priority-queue compare chan-size root-problem)
-                                          xf))
-         timed-out? (when timeout (volatile! false))
-         maybe-future (maybe-schedule #(do (when maybe-control-chan (async/close! maybe-control-chan))
-                                           (vreset! timed-out? true))
-                                      timeout)
-         search-xf (if timeout
-                     (comp (timeout-xf timed-out?) (xform init))
-                     (comp (xform init)))
-         config {:root-problem root-problem
-                 :control-chan maybe-control-chan
-                 :search-xf    search-xf
-                 :parallelism  parallelism
-                 :compare      compare}]
+    {:keys [parallelism timeout] :as config
+     :or   {parallelism 1}}]
+   (check-config! init parallelism)
+   (let [{search-with :search-alg :as config'}
+         (cond-> (init! config init parallelism compare)
+                 (search-in-parallel? parallelism) add-async-config
+                 timeout add-timeout-config)]
      (try
-       (if parallel?
-         (search-parallel config)
-         (search-sequential config))
+       (search-with config')
        (finally
-         (when maybe-future (future-cancel maybe-future))
-         (when maybe-control-chan (async/close! maybe-control-chan))))))
+         (when-let [timeout-future (:timeout-future config')]
+           (future-cancel timeout-future))
+         (when-let [control-chan (:control-chan config')]
+           (async/close! control-chan))))))
   ([init chan-size parallelism]
    (search init {:chan-size   chan-size
                  :parallelism parallelism})))
