@@ -129,44 +129,46 @@ afterwards, upon completion."}
         (new PriorityQueue
              ^Comparator (priority-comparator compare)))))
 
-(defmacro offer-to [first-problem next-heap chan]
-  `(let [[second-problem#] (peek ~next-heap)
-         offer# (when second-problem# (async/offer! ~chan second-problem#))]
-     (cond
-       ;; channel full or no problems left, so do not forget second-problem#
-       (nil? offer#) (recur ~first-problem ~next-heap)
-       ;; second-problem# was put onto chan, so forget about second-problem#
-       (true? offer#) (recur ~first-problem (pop ~next-heap))
-       ;; channel closed: stop immediately
-       (false? offer#) ~first-problem)))
+(defn recur-sequential [_ first-problem next-heap]
+  [[] `(recur ~first-problem ~next-heap)])
 
-(defmacro combine->recur [problem heap & [f & more :as body]]
-  (let [first-problem (gensym)
-        next-heap (gensym)
-        body (if (seq body)
-               (cons f (cons first-problem (cons next-heap more)))
-               `(recur ~first-problem ~next-heap))]
-    `(if-let [heap-head# (peek ~heap)]
-       (let [~first-problem (combine ~problem (first heap-head#))
-             ~next-heap (pop ~heap)]
-         ~body)
-       ~problem)))
+(defn recur-parallel [config first-problem next-heap]
+  (let [chan (gensym)]
+    [`[~chan (:control-chan ~config)]
+     `(let [[second-problem#] (peek ~next-heap)
+            offer# (when second-problem# (async/offer! ~chan second-problem#))]
+        (cond
+          ;; channel full or no problems left, so do not forget second-problem#
+          (nil? offer#) (recur ~first-problem ~next-heap)
+          ;; second-problem# was put onto chan, so forget about second-problem#
+          (true? offer#) (recur ~first-problem (pop ~next-heap))
+          ;; channel closed: stop immediately
+          (false? offer#) ~first-problem))]))
 
-(defmacro worker [problem search-xf compare & args]
-  `(loop [p# ~problem
-          heap# (make-heap ~compare)]
-     (let [children# (children p#)]
-       (if-let [result# (stop p# children#)]
-         result#
-         (if-let [next-heap# (try (into heap# ~search-xf children#)
-                                  (catch TimeoutException _#))]
-           (combine->recur p# next-heap# ~@args)
-           p#)))))
+(defmacro do-search [make-body start-problem config]
+  (let [[config-sym search-xf compare next-problem next-heap] (repeatedly 5 gensym)
+        [more-bindings body] ((resolve make-body) config-sym next-problem next-heap)
+        bindings (into [{search-xf :search-xf compare :compare :as config-sym} config]
+                       more-bindings)]
+    `(let ~bindings
+       (loop [problem# ~start-problem
+              heap# (make-heap ~compare)]
+         (let [children# (children problem#)]
+           (if-let [result# (stop problem# children#)]
+             result#
+             (let [heap'# (try (into heap# ~search-xf children#)
+                               (catch TimeoutException _#))
+                   head# (peek heap'#)]
+               (if head#
+                 (let [~next-problem (combine problem# (first head#))
+                       ~next-heap (pop heap'#)]
+                   ~body)
+                 problem#))))))))
 
-(defn async-worker [problem {:keys [search-xf control-chan compare]}]
+(defn go-work [problem config]
   (async/go
     (try
-      (worker problem search-xf compare offer-to control-chan)
+      (do-search recur-parallel problem config)
       (catch Exception e e))))
 
 (defn transduce-1
@@ -189,20 +191,19 @@ afterwards, upon completion."}
   [{:keys [root-problem control-chan parallelism] :as config}]
   (loop [problem root-problem
          worker-pool []]
-    (let [[$val ch] (next-channel-value worker-pool
-                                        control-chan parallelism)]
+    (let [[$val ch]
+          (next-channel-value worker-pool control-chan parallelism)]
       (cond
         (nil? $val) problem
         (reduced? $val) @$val
         (instance? Throwable $val) (throw $val)
         (= ch control-chan) (recur problem
-                                   (conj worker-pool
-                                         (async-worker $val config)))
+                                   (conj worker-pool (go-work $val config)))
         :else (recur (combine-async problem $val)
                      (remove-worker-from worker-pool ch))))))
 
-(defn search-sequential [{:keys [root-problem search-xf compare]}]
-  (let [result (worker root-problem search-xf compare)]
+(defn search-sequential [{:keys [root-problem] :as config}]
+  (let [result (do-search recur-sequential root-problem config)]
     (if (reduced? result)
       @result
       result)))
