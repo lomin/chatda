@@ -8,7 +8,7 @@ afterwards, upon completion."}
             [clojure.core.async.impl.protocols :as async-protocols]
             [clojure.core.async.impl.concurrent :as conc])
   (:import (java.util.concurrent TimeoutException Executors TimeUnit ScheduledExecutorService)
-           (clojure.lang IPersistentStack Counted Seqable IEditableCollection ITransientCollection IMeta IObj)
+           (clojure.lang IPersistentStack Counted IEditableCollection ITransientCollection IMeta IObj)
            (java.util PriorityQueue Comparator)
            (clojure.core.async.impl.protocols Executor)))
 
@@ -50,9 +50,9 @@ afterwards, upon completion."}
   (combine-async [this other]))
 
 (deftype PriorityQueueBuffer
-  [^Comparator compare ^long n ^PriorityQueue buf]
+  [^long n ^PriorityQueue buf]
   async-protocols/Buffer
-  (full? [_] (if (neg? n) false (>= (.size buf) n)))
+  (full? [_] (<= n (.size buf)))
   (remove! [_] (.poll buf))
   (add!* [this itm] (.offer buf itm) this)
   (close-buf! [_])
@@ -96,33 +96,15 @@ afterwards, upon completion."}
   IMeta
   (meta [_] {})
   IObj
-  (withMeta [self _] self)
-  Seqable
-  (seq [self]
-    (when-let [head (peek self)]
-      (cons head
-            (when (< 1 (.count self))
-              (lazy-seq
-                (let [iterator (.iterator buf)]
-                  (.next iterator)
-                  (map heap-item->item+priority
-                       (iterator-seq iterator)))))))))
+  (withMeta [self _] self))
 
 (defn priority-comparator [compare]
   (fn [a b] (compare (priority a) (priority b))))
 
-(defn priority-queue
-  ([^Comparator compare]
-   (priority-queue compare -1))
-  ([^Comparator compare ^long n]
-   (priority-queue compare n nil))
-  ([^Comparator compare ^long n init]
-   (new PriorityQueueBuffer
-        compare
-        n
-        (cond-> (new PriorityQueue (max 1 n)
-                     ^Comparator (priority-comparator compare))
-                (some? init) (doto (.add init))))))
+(defn priority-queue [^Comparator compare ^long n]
+  (new PriorityQueueBuffer n
+       (new PriorityQueue (max 1 n)
+            ^Comparator (priority-comparator compare))))
 
 (defn make-heap
   ([^Comparator compare]
@@ -160,9 +142,9 @@ afterwards, upon completion."}
              result#
              (let [heap'# (try (into heap# ~search-xf children#)
                                (catch TimeoutException _#))
-                   head# (peek heap'#)]
-               (if head#
-                 (let [~next-problem (combine problem# (first head#))
+                   head-problem+priority# (peek heap'#)]
+               (if head-problem+priority#
+                 (let [~next-problem (combine problem# (first head-problem+priority#))
                        ~next-heap (pop heap'#)]
                    ~body)
                  problem#))))))))
@@ -192,7 +174,7 @@ afterwards, upon completion."}
 (defn search-parallel
   [{:keys [root-problem control-chan parallelism] :as config}]
   (loop [problem root-problem
-         worker-pool []]
+         worker-pool [(go-work root-problem config)]]
     (let [[p ch]
           (take-problem+chan-from worker-pool control-chan parallelism)]
       (cond
@@ -201,6 +183,7 @@ afterwards, upon completion."}
         (instance? Throwable p) (throw p)
         (= ch control-chan) (recur problem
                                    (conj worker-pool (go-work p config)))
+        ;; => ch must be a go-worker and p is a new problem (or once the root-problem)
         :else (recur (if (identical? problem p) p (combine-async problem p))
                      (remove-worker-from worker-pool ch))))))
 
@@ -235,31 +218,28 @@ afterwards, upon completion."}
                          {:parallelism parallelism
                           :problem     problem})))))
 
-(defn init! [config init-problem parallelism compare]
+(defn init! [config root-problem parallelism compare]
   @init-custom-thread-pool-executor
   (merge {:search-alg   search-sequential
-          :root-problem init-problem
+          :root-problem root-problem
           :parallelism  parallelism
           :chan-size    1
-          :search-xf    (xform init-problem)
+          :search-xf    (xform root-problem)
           :compare      compare
           :timeout      nil
           :control-chan nil}
          config))
 
-(defn add-async-config [{:keys [root-problem compare chan-size] :as config}]
-  (let [xf (xform-async root-problem)
-        root-problem' (transduce-1 xf root-problem)]
+(defn init-async-config [{:keys [root-problem compare chan-size] :as config}]
+  (let [xf (xform-async root-problem)]
     (-> config
         (assoc :search-alg search-parallel)
-        (assoc :root-problem root-problem')
-        (assoc :control-chan
-               (async/chan (priority-queue compare chan-size root-problem')
-                           xf)))))
+        (assoc :root-problem (transduce-1 xf root-problem))
+        (assoc :control-chan (async/chan (priority-queue compare chan-size) xf)))))
 
-(defn add-timeout-config [{:keys [timeout control-chan] :as config}]
+(defn init-timeout-config! [{:keys [timeout control-chan] :as config}]
   (let [timed-out? (volatile! false)
-        timeout-xf (map (fn [x] (if @timed-out? (throw timeout-exception) x)))]
+        timeout-xf (map #(if @timed-out? (throw timeout-exception) %))]
     (-> config
         (assoc :timeout-future
                (.schedule ^ScheduledExecutorService @timeout-executor
@@ -270,14 +250,14 @@ afterwards, upon completion."}
         (update :search-xf #(comp timeout-xf %)))))
 
 (defn search
-  ([{:keys [compare] :or {compare depth-first-comparator} :as init}
+  ([{:keys [compare] :or {compare depth-first-comparator} :as root-problem}
     {:keys [parallelism timeout] :as partial-config
      :or   {parallelism 1}}]
-   (check-config! init parallelism)
+   (check-config! root-problem parallelism)
    (let [{search-with :search-alg :as config}
-         (cond-> (init! partial-config init parallelism compare)
-                 (search-in-parallel? parallelism) add-async-config
-                 timeout add-timeout-config)]
+         (cond-> (init! partial-config root-problem parallelism compare)
+                 (search-in-parallel? parallelism) init-async-config
+                 timeout init-timeout-config!)]
      (try
        (search-with config)
        (finally
