@@ -181,7 +181,7 @@ afterwards, upon completion."}
 (defn remove-worker-from [worker-pool worker]
   (filterv #(not= % worker) worker-pool))
 
-(defn next-channel-value
+(defn take-problem+chan-from
   [worker-pool control-chan parallelism]
   (if (<= parallelism (count worker-pool))
     (async/alts!! worker-pool)
@@ -193,15 +193,15 @@ afterwards, upon completion."}
   [{:keys [root-problem control-chan parallelism] :as config}]
   (loop [problem root-problem
          worker-pool []]
-    (let [[$val ch]
-          (next-channel-value worker-pool control-chan parallelism)]
+    (let [[p ch]
+          (take-problem+chan-from worker-pool control-chan parallelism)]
       (cond
-        (nil? $val) problem
-        (reduced? $val) @$val
-        (instance? Throwable $val) (throw $val)
+        (nil? p) problem
+        (reduced? p) @p
+        (instance? Throwable p) (throw p)
         (= ch control-chan) (recur problem
-                                   (conj worker-pool (go-work $val config)))
-        :else (recur (combine-async problem $val)
+                                   (conj worker-pool (go-work p config)))
+        :else (recur (combine-async problem p)
                      (remove-worker-from worker-pool ch))))))
 
 (defn search-sequential [{:keys [root-problem] :as config}]
