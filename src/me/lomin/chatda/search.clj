@@ -6,37 +6,14 @@ sub-tasks that can be processed independently and whose results are combined
 afterwards, upon completion."}
   (:require [clojure.core.async :as async]
             [clojure.core.async.impl.protocols :as async-protocols]
-            [clojure.core.async.impl.concurrent :as conc])
-  (:import (java.util.concurrent TimeoutException Executors TimeUnit ScheduledExecutorService)
+            [me.lomin.chatda.threadpool :as thread-pool])
+  (:import (java.util.concurrent TimeoutException TimeUnit ScheduledExecutorService)
            (clojure.lang IPersistentStack Counted IEditableCollection ITransientCollection IMeta IObj)
-           (java.util PriorityQueue Comparator)
-           (clojure.core.async.impl.protocols Executor)))
+           (java.util PriorityQueue Comparator)))
 
 #_(set! *warn-on-reflection* true)
 
 (def ^:dynamic *force-parallel-search?* false)
-
-(defn make-switching-executor [delayed-core-async-executor]
-  (delay (let [core-async-executor @delayed-core-async-executor
-               opts {:init-fn
-                     #(.set ^ThreadLocal @#'clojure.core.async.impl.dispatch/in-dispatch true)}
-               cpu-bound-executor (Executors/newFixedThreadPool
-                                    (.availableProcessors (Runtime/getRuntime))
-                                    (conc/counted-thread-factory "me.lomin.chatda.search/async-worker-%d"
-                                                                 true
-                                                                 opts))]
-           (reify Executor
-             (async-protocols/exec [_ runnable]
-               (if (= (.getPackageName (.getClass runnable)) "me.lomin.chatda")
-                 (.execute cpu-bound-executor ^Runnable runnable)
-                 (async-protocols/exec core-async-executor runnable)))))))
-
-(defonce init-custom-thread-pool-executor
-         (delay (alter-var-root #'clojure.core.async.impl.dispatch/executor
-                                make-switching-executor)))
-
-(defonce timeout-executor
-         (delay (Executors/newSingleThreadScheduledExecutor)))
 
 (defprotocol Searchable
   (children [self])
@@ -219,7 +196,7 @@ afterwards, upon completion."}
                           :problem     problem})))))
 
 (defn init! [config root-problem parallelism compare]
-  @init-custom-thread-pool-executor
+  @thread-pool/custom-thread-pool-executor
   (merge {:search-alg   search-sequential
           :root-problem root-problem
           :parallelism  parallelism
@@ -242,7 +219,7 @@ afterwards, upon completion."}
         timeout-xf (map #(if @timed-out? (throw timeout-exception) %))]
     (-> config
         (assoc :timeout-future
-               (.schedule ^ScheduledExecutorService @timeout-executor
+               (.schedule ^ScheduledExecutorService @thread-pool/timeout-executor
                           ^Runnable #(do (when control-chan (async/close! control-chan))
                                          (vreset! timed-out? true))
                           ^long timeout
