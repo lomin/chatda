@@ -37,30 +37,24 @@ afterwards, upon completion."}
   (count [_] (.size buf)))
 
 (declare make-heap)
-(defn heap-item->item+priority [item] [item (priority item)])
-
 ;; DO NOT USE Heap OUTSIDE THIS NAMESPACE!
 ;; It does not properly comply to the contract of the implemented
-;; protocols in favor of performance optimization. The use of Heap in this
-;; namespace is intended to look like idiomatic Clojure code, but if it is
-;; used other than the fine-tuned accesses in this namespace, the abstraction
-;; will probably break.
+;; protocols in favor of performance optimization. This Heap implementation brings
+;; a performance increase of about 30% compared to `clojure.data.priority-map`.
+;; The use of Heap in this namespace is intended to look like idiomatic Clojure code,
+;; but if it is used other than the fine-tuned accesses in this namespace, the
+;; abstraction will probably break.
 ;; Heap behaves like a mutable variable with the API of a transient, but without
 ;; its semantics. For example, `(persistent! heap)` will return the same heap.
 ;; Neither Heap nor its underlying java.util.PriorityQueue are synchronized.
 ;; This is fine in this namespace, since we guarantee that a Heap has only
 ;; exactly one accessor, i.e. we guarantee thread isolation.
-;; Why do implement our heap, if there is `clojure.data.priority-map`?
-;; Because `clojure.data.priority-map` manages two hash maps:
-;; One from priority to element and one from element to priority. The latter
-;; results in a lot of hashing of the element, which gets slower the bigger the
-;; element  gets. This leads to a performance bottleneck.
 (deftype Heap
   [^Comparator compare ^PriorityQueue buf]
   Counted
   (count [_] (.size buf))
   IPersistentStack
-  (peek [_] (when-let [item (.peek buf)] (heap-item->item+priority item)))
+  (peek [_] (when-let [item (.peek buf)] [item (priority item)]))
   (pop [self] (.poll buf) self)
   (cons [self item] (.offer buf item) self)
   (empty [_] (make-heap compare))
