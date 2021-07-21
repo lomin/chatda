@@ -201,7 +201,7 @@ afterwards, upon completion."}
         (instance? Throwable p) (throw p)
         (= ch control-chan) (recur problem
                                    (conj worker-pool (go-work p config)))
-        :else (recur (combine-async problem p)
+        :else (recur (if (identical? problem p) p (combine-async problem p))
                      (remove-worker-from worker-pool ch))))))
 
 (defn search-sequential [{:keys [root-problem] :as config}]
