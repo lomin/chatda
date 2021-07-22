@@ -111,15 +111,17 @@
          (search/combine-async (vary-meta ~other assoc ::sorted true) ~this)
          ~body*))))
 
-(defn init [p]
-  (merge p {:a-star:costs              0
-            :a-star:seen               (volatile! {(a-star-identity p)
-                                                   (calculate-back+forward-costs p)})
-            :a-star:back+forward-costs 0
-            :a-star:priority           [0 0]
-            :a-star:best-costs         (atom Integer/MAX_VALUE)}))
-
-(defn config []
-  {:compare-priority search/smaller-priority-is-better
-   :search-xf        (with-xform)
-   :search-xf-async  (with-xform-async)})
+(defn init
+  ([root-problem] (init root-problem nil))
+  ([root-problem custom-config]
+   (merge {:root-problem     (merge root-problem
+                                    {:a-star:costs              0
+                                     :a-star:seen               (volatile! {(a-star-identity root-problem)
+                                                                            (calculate-back+forward-costs root-problem)})
+                                     :a-star:back+forward-costs 0
+                                     :a-star:priority           [0 0]
+                                     :a-star:best-costs         (atom Integer/MAX_VALUE)})
+           :compare-priority search/smaller-priority-is-better
+           :search-xf        (with-xform)
+           :search-xf-async  (with-xform-async)}
+          custom-config)))

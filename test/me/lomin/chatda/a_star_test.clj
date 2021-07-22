@@ -118,25 +118,17 @@
     (a-star/with-combine-async this other)))
 
 (defn city-travel-problem [g from to]
-  (let [init-problem (-> (map->CityTravelProblem {:graph   g
-                                                  :current (node g from)
-                                                  :target  (node g to)
-                                                  :path    [from]})
-                         (a-star/init))]
-    init-problem))
+  (a-star/init (map->CityTravelProblem {:graph   g
+                                        :current (node g from)
+                                        :target  (node g to)
+                                        :path    [from]})))
 
 (defn shortest-travel
   ([from to] (shortest-travel from to {}))
   ([from to options]
    (as-> (read-graph "resources/cities.txt") $
          (city-travel-problem $ (node $ from) (node $ to))
-         (search/search $
-                        (merge (a-star/config)
-                               {:compare-priority search/smaller-priority-is-better
-                                :parallelism      1
-                                :chan-size        1
-                                :timeout          1000}
-                               options))
+         (search/search (merge $ {:timeout 1000} options))
          (:path $))))
 
 (deftest shortest-travel-test

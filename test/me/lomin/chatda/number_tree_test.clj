@@ -30,13 +30,15 @@
   search/AsyncSearchable
   (combine-async [this other] (search/combine this other)))
 
-(defn make-parallel-number-tree-search-problem [branch-factor max-size]
-  (map->ParallelNumberTreeSearch {:value            0
-                                  :max-value        0
-                                  :partial-sum      0
-                                  :compare-priority search/smaller-priority-is-better
-                                  :branch           branch-factor
-                                  :max-size         max-size}))
+(defn make-parallel-number-tree-search [branch-factor max-size]
+  {:root-problem     (map->ParallelNumberTreeSearch {:value       0
+                                                     :max-value   0
+                                                     :partial-sum 0
+                                                     :branch      branch-factor
+                                                     :max-size    max-size})
+   :search-xf        (comp (filter #(<= (:value %) (:max-size %)))
+                           (map #(assoc % :partial-sum (:value %)))
+                           (map #(assoc % :max-value (:value %))))})
 
 (defmacro make-reporter-fn [make-expected make-actual]
   `(fn [m#]
@@ -45,22 +47,14 @@
          (is (= (apply ~make-expected input#)
                 (apply ~make-actual input#)))))))
 
-(defn config [options]
-  (merge {:search-xf (comp (filter #(<= (:value %) (:max-size %)))
-                           (map #(assoc % :partial-sum (:value %)))
-                           (map #(assoc % :max-value (:value %))))}
-         options))
-
-(defn search [p options]
-  (search/search p (config options)))
-
 (defn search-number-tree-parallel
   ([n parallelism chan-size branch-factor]
    (search-number-tree-parallel identity n parallelism chan-size branch-factor))
   ([select n parallelism chan-size branch-factor]
-   (-> (make-parallel-number-tree-search-problem branch-factor n)
-       (search {:parallelism parallelism
-                :chan-size   chan-size})
+   (-> (make-parallel-number-tree-search branch-factor n)
+       (merge {:parallelism parallelism
+               :chan-size   chan-size})
+       search/search
        select)))
 
 (defn number-tree-properties [select n & _]

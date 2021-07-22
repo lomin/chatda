@@ -182,15 +182,15 @@ afterwards, upon completion."}
   (or (<= 2 (get config :parallelism 1))
       *force-parallel-search?*))
 
-(defn check-config! [problem config]
+(defn check-config! [{root-problem :root-problem :as config}]
   (when (and (search-in-parallel? config)
-             (not (satisfies? AsyncSearchable problem)))
+             (not (satisfies? AsyncSearchable root-problem)))
     (throw (new IllegalArgumentException
                 ^Throwable
                 (ex-info "Problems that do not implement AsyncSearchable
                   must be searched sequentially"
                          {:parallelism (:parallelism config)
-                          :problem     problem})))))
+                          :problem     root-problem})))))
 
 (def DEFAULT-CONFIG
   {:search-alg       search-sequential
@@ -203,11 +203,9 @@ afterwards, upon completion."}
    :timeout          nil
    :control-chan     nil})
 
-(defn init! [config root-problem]
+(defn init! [default-config config]
   @thread-pool/custom-thread-pool-executor
-  (merge DEFAULT-CONFIG
-         {:root-problem root-problem}
-         config))
+  (merge default-config config))
 
 (defn init-async-config [{:keys [compare-priority chan-size search-xf-async] :as config}]
   (-> config
@@ -227,14 +225,14 @@ afterwards, upon completion."}
                           TimeUnit/MILLISECONDS))
         (update :search-xf #(comp timeout-xf %)))))
 
-(defn search [root-problem {:keys [timeout] :as partial-config}]
-  (check-config! root-problem partial-config)
-  (let [{search-with :search-alg :as config}
-        (cond-> (init! partial-config root-problem)
-                (search-in-parallel? partial-config) init-async-config
-                timeout init-timeout-config!)]
+(defn search [{timeout? :timeout :as search-config}]
+  (check-config! search-config)
+  (let [{search-with :search-alg :as complete-config}
+        (cond-> (init! DEFAULT-CONFIG search-config)
+                (search-in-parallel? search-config) init-async-config
+                timeout? init-timeout-config!)]
     (try
-      (search-with config)
+      (search-with complete-config)
       (finally
-        (some-> config :timeout-future future-cancel)
-        (some-> config :control-chan async/close!)))))
+        (some-> complete-config :timeout-future future-cancel)
+        (some-> complete-config :control-chan async/close!)))))
