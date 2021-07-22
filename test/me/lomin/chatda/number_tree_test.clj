@@ -31,7 +31,7 @@
         (update :partial-sum + (:partial-sum this))
         (update :max-value max (:max-value this))))
   search/AsyncSearchable
-  (xform-async [_] (filter #(<= (:value %) max-size)))
+  (xform-async [_])
   (combine-async [this other] (search/combine this other)))
 
 (defn make-parallel-number-tree-search-problem [branch-factor max-size]
@@ -49,13 +49,22 @@
          (is (= (apply ~make-expected input#)
                 (apply ~make-actual input#)))))))
 
+(defn config [options]
+  (merge {:search-xf (comp (filter #(<= (:value %) (:max-size %)))
+                           (map #(assoc % :partial-sum (:value %)))
+                           (map #(assoc % :max-value (:value %))))}
+         options))
+
+(defn search [p options]
+  (search/search p (config options)))
+
 (defn search-number-tree-parallel
   ([n parallelism chan-size branch-factor]
    (search-number-tree-parallel identity n parallelism chan-size branch-factor))
   ([select n parallelism chan-size branch-factor]
    (-> (make-parallel-number-tree-search-problem branch-factor n)
-       (search/search {:parallelism parallelism
-                       :chan-size   chan-size})
+       (search {:parallelism parallelism
+                :chan-size   chan-size})
        select)))
 
 (defn number-tree-properties [select n & _]

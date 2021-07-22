@@ -95,12 +95,17 @@
              (time)
              (complete-consistent?)))))
 
+(defn search [p chan-size parallelism]
+  (search/search p {:search-xf   (filter consistent?)
+                    :chan-size   chan-size
+                    :parallelism parallelism}))
+
 
 (deftest parallel-csp-test
   (prn "parallel")
   (is (= true
          (-> csp
              (map->ParallelMapColoringCsp)
-             (search/search 2 2)
+             (search 2 2)
              (time)
              (complete-consistent?)))))

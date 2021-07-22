@@ -14,10 +14,10 @@
                            (pm/priority-map-by search/larger-priority-is-better
                                                :a [3 2] :b [2 3] :c [4 1] :d [4 0]))))))
 
-(defn search-with-timeout [{:keys [timeout] :as config}]
+(defn search-with-timeout [{:keys [timeout] :as options}]
   (let [start-time (. System (currentTimeMillis))
         result (-> (ntt/make-parallel-number-tree-search-problem 20 5E300)
-                   (search/search config)
+                   (search/search (ntt/config options))
                    :value)
         end-time (. System (currentTimeMillis))
         duration (- end-time start-time)

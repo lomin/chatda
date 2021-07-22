@@ -3,6 +3,7 @@
 
 (defprotocol AStarInternal
   (get-costs [self])
+  (get-best-costs [self])
   (get-back+forward-costs [self])
   (seen [self]))
 
@@ -37,6 +38,7 @@
     `(defrecord ~name ~fields*
        AStarInternal
        (get-costs [_#] ~costs)
+       (get-best-costs [_#] ~best-costs)
        (get-back+forward-costs [_#] ~back+forward-costs)
        (seen [_#] ~seen)
        ~@body-with-priority)))
@@ -54,8 +56,8 @@
        (swap! ~best-costs min ~back+forward-costs)
        result#)))
 
-(defn best-cost-xform [best-costs]
-  (remove #(<= (deref best-costs) (get-back+forward-costs %))))
+(defn best-cost-xform []
+  (remove #(<= (deref (get-best-costs %)) (get-back+forward-costs %))))
 
 (defn fork-seen-xform []
   (map #(assoc % :a-star:seen (volatile! @(seen %)))))
@@ -77,19 +79,17 @@
                (vswap! seen assoc a-star-identity back+forward-costs)))))
 
 (defmacro with-xform [& body]
-  (let [best-costs (symbol :a-star:best-costs)
-        body* (when (seq body) (list (cons 'do body)))]
+  (let [body* (when (seq body) (list (cons 'do body)))]
     `(comp
        (back+forward-costs-xform)
        (filter-new-or-better-problems-xform)
        ~@body*
        (priority-xform)
-       (best-cost-xform ~best-costs))))
+       (best-cost-xform))))
 
 (defmacro with-xform-async [& body]
-  (let [best-costs (symbol :a-star:best-costs)
-        body* (when (seq body) (list (cons 'do body)))]
-    `(comp (best-cost-xform ~best-costs)
+  (let [body* (when (seq body) (list (cons 'do body)))]
+    `(comp (best-cost-xform)
            (fork-seen-xform)
            ~@body*)))
 
@@ -112,10 +112,14 @@
          ~body*))))
 
 (defn init [p]
-  (merge p {:compare-priority          search/smaller-priority-is-better
-            :a-star:costs              0
+  (merge p {:a-star:costs              0
             :a-star:seen               (volatile! {(a-star-identity p)
                                                    (calculate-back+forward-costs p)})
             :a-star:back+forward-costs 0
             :a-star:priority           [0 0]
             :a-star:best-costs         (atom Integer/MAX_VALUE)}))
+
+(defn config []
+  {:compare-priority search/smaller-priority-is-better
+   :search-xf        (with-xform)
+   :search-xf-async  (with-xform-async)})
