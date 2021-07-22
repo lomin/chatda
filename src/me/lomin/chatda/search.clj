@@ -83,6 +83,8 @@ afterwards, upon completion."}
   IObj
   (withMeta [self _] self))
 
+(def IDENTITY-XFORM (map identity))
+
 (def smaller-priority-is-better compare)
 (def larger-priority-is-better (fn [a b] (compare b a)))
 (defn priority-comparator [compare-priority]
@@ -183,29 +185,35 @@ afterwards, upon completion."}
 ;; main thread.
 (def timeout-exception (new TimeoutException))
 
-(defn search-in-parallel? [parallelism]
-  (or (< 1 parallelism) *force-parallel-search?*))
+(defn search-in-parallel? [config]
+  (or (<= 2 (get config :parallelism 1))
+      *force-parallel-search?*))
 
-(defn check-config! [problem parallelism]
-  (when (and (search-in-parallel? parallelism)
+(defn check-config! [problem config]
+  (when (and (search-in-parallel? config)
              (not (satisfies? AsyncSearchable problem)))
     (throw (new IllegalArgumentException
                 ^Throwable
                 (ex-info "Problems that do not implement AsyncSearchable
                   must be searched sequentially"
-                         {:parallelism parallelism
+                         {:parallelism (:parallelism config)
                           :problem     problem})))))
 
-(defn init! [config root-problem parallelism compare-priority]
+(def DEFAULT-CONFIG
+  {:search-alg       search-sequential
+   :root-problem     nil
+   :parallelism      1
+   :chan-size        1
+   :search-xf        IDENTITY-XFORM
+   :compare-priority larger-priority-is-better
+   :timeout          nil
+   :control-chan     nil})
+
+(defn init! [config root-problem]
   @thread-pool/custom-thread-pool-executor
-  (merge {:search-alg       search-sequential
-          :root-problem     root-problem
-          :parallelism      parallelism
-          :chan-size        1
-          :search-xf        (xform root-problem)
-          :compare-priority compare-priority
-          :timeout          nil
-          :control-chan     nil}
+  (merge DEFAULT-CONFIG
+         {:root-problem root-problem
+          :search-xf    (xform root-problem)}
          config))
 
 (defn init-async-config [{:keys [root-problem compare-priority chan-size] :as config}]
@@ -227,14 +235,12 @@ afterwards, upon completion."}
         (update :search-xf #(comp timeout-xf %)))))
 
 (defn search
-  ([{:keys [compare-priority] :or {compare-priority larger-priority-is-better}
-     :as   root-problem}
-    {:keys [parallelism timeout] :as partial-config
-     :or   {parallelism 1}}]
-   (check-config! root-problem parallelism)
+  ([root-problem
+    {:keys [timeout] :as partial-config}]
+   (check-config! root-problem partial-config)
    (let [{search-with :search-alg :as config}
-         (cond-> (init! partial-config root-problem parallelism compare-priority)
-                 (search-in-parallel? parallelism) init-async-config
+         (cond-> (init! partial-config root-problem)
+                 (search-in-parallel? partial-config) init-async-config
                  timeout init-timeout-config!)]
      (try
        (search-with config)
