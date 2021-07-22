@@ -16,13 +16,27 @@ afterwards, upon completion."}
 (def ^:dynamic *force-parallel-search?* false)
 
 (defprotocol Searchable
+  ;; Must return nil, an empty sequence or a sequence with items
+  ;;of type `Searchable`.
   (children [self])
+  ;; Must return a transducer that every child and grandchild of
+  ;; the root problem is transduced through.
   (xform [self])
+  ;; Must return a number value representing the priority of a problem.
   (priority [self])
+  ;; There are two different ways to stop a search:
+  ;; 1. `stop` return an object wrapped in `reduced`:
+  ;; This will stop all workers immediately and return the object
+  ;; 2. `stop` returns a truthy value:
+  ;; This will stop the worker that returned the truthy value, but
+  ;; different workers will still continue their search.
   (stop [this children])
   (combine [this other]))
 
 (defprotocol AsyncSearchable
+  ;; Must return a transducer. With the exeption of the root problem,
+  ;; every result of a worker that is of type `AsyncSearchable`, is
+  ;; transduced through this transducer.
   (xform-async [self])
   (combine-async [this other]))
 
