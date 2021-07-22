@@ -64,14 +64,14 @@ afterwards, upon completion."}
 ;; This is fine in this namespace, since we guarantee that a Heap has only
 ;; exactly one accessor, i.e. we guarantee thread isolation.
 (deftype Heap
-  [^Comparator compare ^PriorityQueue buf]
+  [^Comparator compare-priority ^PriorityQueue buf]
   Counted
   (count [_] (.size buf))
   IPersistentStack
   (peek [_] (when-let [item (.peek buf)] [item (priority item)]))
   (pop [self] (.poll buf) self)
   (cons [self item] (.offer buf item) self)
-  (empty [_] (make-heap compare))
+  (empty [_] (make-heap compare-priority))
   (equiv [self other] (identical? self other))
   IEditableCollection
   (asTransient [self] self)
@@ -83,20 +83,22 @@ afterwards, upon completion."}
   IObj
   (withMeta [self _] self))
 
-(defn priority-comparator [compare]
-  (fn [a b] (compare (priority a) (priority b))))
+(def smaller-is-better compare)
+(def larger-is-better (fn [a b] (compare b a)))
+(defn priority-comparator [compare-priority]
+  (fn [a b] (compare-priority (priority a) (priority b))))
 
-(defn priority-queue [^Comparator compare ^long n]
+(defn priority-queue [^Comparator compare-priority ^long n]
   (new PriorityQueueBuffer n
        (new PriorityQueue (max 1 n)
-            ^Comparator (priority-comparator compare))))
+            ^Comparator (priority-comparator compare-priority))))
 
 (defn make-heap
-  ([^Comparator compare]
+  ([^Comparator compare-priority]
    (new Heap
-        compare
+        compare-priority
         (new PriorityQueue
-             ^Comparator (priority-comparator compare)))))
+             ^Comparator (priority-comparator compare-priority)))))
 
 (defn recur-sequential [_ first-problem next-heap]
   [[] `(recur ~first-problem ~next-heap)])
@@ -115,13 +117,14 @@ afterwards, upon completion."}
           (false? offer#) ~first-problem))]))
 
 (defmacro do-search [make-body start-problem config]
-  (let [[config-sym search-xf compare next-problem next-heap] (repeatedly 5 gensym)
+  (let [[config-sym search-xf compare-priority next-problem next-heap] (repeatedly 5 gensym)
         [more-bindings body] ((resolve make-body) config-sym next-problem next-heap)
-        bindings (into [{search-xf :search-xf compare :compare :as config-sym} config]
+        bindings (into [{search-xf :search-xf compare-priority :compare-priority
+                         :as       config-sym} config]
                        more-bindings)]
     `(let ~bindings
        (loop [problem# ~start-problem
-              heap# (make-heap ~compare)]
+              heap# (make-heap ~compare-priority)]
          (let [children# (children problem#)]
            (if-let [result# (stop problem# children#)]
              result#
@@ -139,11 +142,6 @@ afterwards, upon completion."}
     (try
       (do-search recur-parallel problem config)
       (catch Exception e e))))
-
-(defn transduce-1
-  "apply a transducer on a single value"
-  [xform x]
-  (first (into [] xform [x])))
 
 (defn remove-worker-from [worker-pool worker]
   (filterv #(not= % worker) worker-pool))
@@ -178,11 +176,6 @@ afterwards, upon completion."}
       @result
       result)))
 
-;; (compare a b) returns a comparator that favors the smaller element,
-;; but if we want to favor an element deeper in the search space (further
-;; from the root, i.e. with a higher depth value), we have to switch the arguments:
-(def depth-first-comparator (fn [a b] (compare b a)))
-
 ;; Creating TimeoutException ahead of time and only once, since
 ;; creating an exception is expensive and we are not interested
 ;; in the stacktrace. This significantly reduces the latency
@@ -203,24 +196,23 @@ afterwards, upon completion."}
                          {:parallelism parallelism
                           :problem     problem})))))
 
-(defn init! [config root-problem parallelism compare]
+(defn init! [config root-problem parallelism compare-priority]
   @thread-pool/custom-thread-pool-executor
-  (merge {:search-alg   search-sequential
-          :root-problem root-problem
-          :parallelism  parallelism
-          :chan-size    1
-          :search-xf    (xform root-problem)
-          :compare      compare
-          :timeout      nil
-          :control-chan nil}
+  (merge {:search-alg       search-sequential
+          :root-problem     root-problem
+          :parallelism      parallelism
+          :chan-size        1
+          :search-xf        (xform root-problem)
+          :compare-priority compare-priority
+          :timeout          nil
+          :control-chan     nil}
          config))
 
-(defn init-async-config [{:keys [root-problem compare chan-size] :as config}]
-  (let [xf (xform-async root-problem)]
-    (-> config
-        (assoc :search-alg search-parallel)
-        (assoc :root-problem (transduce-1 xf root-problem))
-        (assoc :control-chan (async/chan (priority-queue compare chan-size) xf)))))
+(defn init-async-config [{:keys [root-problem compare-priority chan-size] :as config}]
+  (-> config
+      (assoc :search-alg search-parallel)
+      (assoc :control-chan (async/chan (priority-queue compare-priority chan-size)
+                                       (xform-async root-problem)))))
 
 (defn init-timeout-config! [{:keys [timeout control-chan] :as config}]
   (let [timed-out? (volatile! false)
@@ -235,12 +227,13 @@ afterwards, upon completion."}
         (update :search-xf #(comp timeout-xf %)))))
 
 (defn search
-  ([{:keys [compare] :or {compare depth-first-comparator} :as root-problem}
+  ([{:keys [compare-priority] :or {compare-priority larger-is-better}
+     :as   root-problem}
     {:keys [parallelism timeout] :as partial-config
      :or   {parallelism 1}}]
    (check-config! root-problem parallelism)
    (let [{search-with :search-alg :as config}
-         (cond-> (init! partial-config root-problem parallelism compare)
+         (cond-> (init! partial-config root-problem parallelism compare-priority)
                  (search-in-parallel? parallelism) init-async-config
                  timeout init-timeout-config!)]
      (try

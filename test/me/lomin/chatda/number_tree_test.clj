@@ -9,37 +9,38 @@
 (defn partial-sum [n]
   (/ (* n (inc n)) 2))
 
-(defn abs [number] (if (pos? number) number (* -1 number)))
-
 (defn child-value [value branch-factor child-index]
   (+' (*' branch-factor value) child-index))
 
 (defrecord ParallelNumberTreeSearch [value branch max-size]
   search/Searchable
   (children [problem]
-    (map (fn [i]
-           (assoc problem
-             :value
-             (child-value value branch i)))
-         (range 1 (inc branch))))
+    (when (< value max-size)
+      (map (fn [i]
+             (assoc problem
+               :value
+               (child-value value branch i)))
+           (range 1 (inc branch)))))
   (xform [_] (comp (filter #(<= (:value %) max-size))
-                   (map #(assoc % :partial-sum (:value %)))))
-  (priority [this] (abs (- (:value this) max-size)))
-  (stop [this _] (when (<= max-size value) this))
-  (combine [self other]
-    (update other :partial-sum + (:partial-sum self)))
+                   (map #(assoc % :partial-sum (:value %)))
+                   (map #(assoc % :max-value (:value %)))))
+  (priority [_] value)
+  (stop [_ _])
+  (combine [this other]
+    (-> other
+        (update :partial-sum + (:partial-sum this))
+        (update :max-value max (:max-value this))))
   search/AsyncSearchable
-  (xform-async [_] (map #(assoc % :partial-sum (:value %))))
-  (combine-async [this other]
-    (if (< (search/priority this) (search/priority other))
-      (search/combine other this)
-      (search/combine this other))))
+  (xform-async [_] (filter #(<= (:value %) max-size)))
+  (combine-async [this other] (search/combine this other)))
 
 (defn make-parallel-number-tree-search-problem [branch-factor max-size]
-  (map->ParallelNumberTreeSearch {:value       0
-                                  :partial-sum 0
-                                  :branch      branch-factor
-                                  :max-size    max-size}))
+  (map->ParallelNumberTreeSearch {:value            0
+                                  :max-value        0
+                                  :partial-sum      0
+                                  :compare-priority search/smaller-is-better
+                                  :branch           branch-factor
+                                  :max-size         max-size}))
 
 (defmacro make-reporter-fn [make-expected make-actual]
   `(fn [m#]
@@ -59,15 +60,32 @@
 
 (defn number-tree-properties [select n & _]
   (cond
-    (= select :value) n
+    (= select :max-value) n
     (= select :partial-sum) (partial-sum n)))
+
+(deftest example-tests
+  (is (= 5
+         (number-tree-properties :max-value 5 1 1 2)
+         (search-number-tree-parallel :max-value 5 1 1 2)))
+
+  (is (= 11
+         (number-tree-properties :max-value 11 1 1 2)
+         (search-number-tree-parallel :max-value 11 1 1 2)))
+
+  (is (= 15
+         (number-tree-properties :partial-sum 5 1 1 2)
+         (search-number-tree-parallel :partial-sum 5 1 1 2)))
+
+  (is (= 66
+         (number-tree-properties :partial-sum 11 1 1 2)
+         (search-number-tree-parallel :partial-sum 11 1 1 2))))
 
 (check/defspec number-tree-test
   {:num-tests   100
    :max-size    10000
    :reporter-fn (make-reporter-fn number-tree-properties
                                   search-number-tree-parallel)}
-  (prop/for-all [select (gen/elements #{:value :partial-sum})
+  (prop/for-all [select (gen/elements #{:max-value :partial-sum})
                  n (gen/fmap inc gen/nat)
                  parallelism (gen/fmap inc gen/nat)
                  chan-size (gen/fmap inc gen/nat)
@@ -77,4 +95,4 @@
 
 (comment
   (require '[clj-async-profiler.core :as prof])
-  (prn (time (search-number-tree-parallel :value 2000000 2 1 2))))
+  (prn (time (search-number-tree-parallel :max-value 2000000 2 1 2))))
