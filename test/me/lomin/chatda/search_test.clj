@@ -27,16 +27,14 @@
 ;; If the timeout timeout does not take effect, this test takes about
 ;; 1 second on my tiny machine.
 (deftest timeout-test
-  (let [[result duration accepted-duration]
+  (let [[_ duration accepted-duration]
         (search-with-timeout {:parallelism 100
                               :chan-size   100
                               :timeout     50})]
-    (is (> 1E200 result))
     (is (<= duration accepted-duration)))
 
-  (let [[result duration accepted-duration]
+  (let [[_ duration accepted-duration]
         (search-with-timeout {:parallelism 1
                               :chan-size   1
                               :timeout     50})]
-    (is (> 1E200 result))
     (is (<= duration accepted-duration))))
