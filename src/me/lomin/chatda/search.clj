@@ -83,8 +83,8 @@ afterwards, upon completion."}
   IObj
   (withMeta [self _] self))
 
-(def smaller-is-better compare)
-(def larger-is-better (fn [a b] (compare b a)))
+(def smaller-priority-is-better compare)
+(def larger-priority-is-better (fn [a b] (compare b a)))
 (defn priority-comparator [compare-priority]
   (fn [a b] (compare-priority (priority a) (priority b))))
 
@@ -227,7 +227,7 @@ afterwards, upon completion."}
         (update :search-xf #(comp timeout-xf %)))))
 
 (defn search
-  ([{:keys [compare-priority] :or {compare-priority larger-is-better}
+  ([{:keys [compare-priority] :or {compare-priority larger-priority-is-better}
      :as   root-problem}
     {:keys [parallelism timeout] :as partial-config
      :or   {parallelism 1}}]

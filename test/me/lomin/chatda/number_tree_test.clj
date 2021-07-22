@@ -38,7 +38,7 @@
   (map->ParallelNumberTreeSearch {:value            0
                                   :max-value        0
                                   :partial-sum      0
-                                  :compare-priority search/smaller-is-better
+                                  :compare-priority search/smaller-priority-is-better
                                   :branch           branch-factor
                                   :max-size         max-size}))
 

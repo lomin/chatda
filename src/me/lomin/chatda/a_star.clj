@@ -112,7 +112,7 @@
          ~body*))))
 
 (defn init [p]
-  (merge p {:compare-priority          search/smaller-is-better
+  (merge p {:compare-priority          search/smaller-priority-is-better
             :a-star:costs              0
             :a-star:seen               (volatile! {(a-star-identity p)
                                                    (calculate-back+forward-costs p)})
