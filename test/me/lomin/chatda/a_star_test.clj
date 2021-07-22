@@ -111,11 +111,9 @@
   (a-star-identity [_] current)
   search/Searchable
   (children [this] (a-star/with-children (children this)))
-  (xform [_] (a-star/with-xform))
   (stop [this _] (a-star/with-stop (and (= current target) this)))
   (combine [_ other] other)
   search/AsyncSearchable
-  (xform-async [_] (a-star/with-xform-async))
   (combine-async [this other]
     (a-star/with-combine-async this other)))
 

@@ -21,9 +21,6 @@
                :value
                (child-value value branch i)))
            (range 1 (inc branch)))))
-  (xform [_] (comp (filter #(<= (:value %) max-size))
-                   (map #(assoc % :partial-sum (:value %)))
-                   (map #(assoc % :max-value (:value %)))))
   (priority [_] value)
   (stop [_ _])
   (combine [this other]
@@ -31,7 +28,6 @@
         (update :partial-sum + (:partial-sum this))
         (update :max-value max (:max-value this))))
   search/AsyncSearchable
-  (xform-async [_])
   (combine-async [this other] (search/combine this other)))
 
 (defn make-parallel-number-tree-search-problem [branch-factor max-size]

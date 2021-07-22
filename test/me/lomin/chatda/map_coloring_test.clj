@@ -2,6 +2,13 @@
   (:require [clojure.test :refer :all]
             [me.lomin.chatda.search :as search]))
 
+(defn complete? [csp]
+  (and csp (every? some? (vals (:assignment csp)))))
+
+(defn consistent? [{:keys [any-constraints-violated?]
+                    :as   csp}]
+  (not (any-constraints-violated? csp)))
+
 (defn sequential-backtracking-seq [xform csps]
   (lazy-seq (if-let [[$first & $rest]
                      (sequence xform csps)]
@@ -12,7 +19,7 @@
 
 (defn sequential-backtracking [csp]
   (first (filter (comp empty? search/children)
-                 (sequential-backtracking-seq (search/xform csp)
+                 (sequential-backtracking-seq (filter consistent?)
                                               (search/children csp)))))
 
 (defn constraint [state-a state-b]
@@ -47,27 +54,17 @@
                (:domains csp))))
 
 
-(defn complete? [csp]
-  (and csp (every? some? (vals (:assignment csp)))))
-
-(defn consistent? [{:keys [any-constraints-violated?]
-                    :as   csp}]
-  (not (any-constraints-violated? csp)))
-
 (defrecord MapColoringCsp []
   search/Searchable
-  (children [this] (next-csps this))
-  (xform [_] (filter consistent?)))
+  (children [this] (next-csps this)))
 
 (defrecord ParallelMapColoringCsp []
   search/Searchable
   (children [this] (next-csps this))
-  (xform [_] (filter consistent?))
   (priority [this] (count (remove nil? (vals (:assignment this)))))
   (stop [this children] (when (empty? children) (reduced this)))
   (combine [_ other] other)
   search/AsyncSearchable
-  (xform-async [self] (search/xform self))
   (combine-async [this other] (search/combine this other)))
 
 (def csp (map->ParallelMapColoringCsp
