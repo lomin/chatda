@@ -152,7 +152,7 @@ afterwards, upon completion."}
 
 (defn recur-parallel [config first-problem next-heap]
   (let [chan (gensym)]
-    [`[~chan (:control-chan ~config)]
+    [`[~chan (::control-chan ~config)]
      `(let [[second-problem#] (peek ~next-heap)
             offer# (when second-problem# (async/offer! ~chan second-problem#))]
         (cond
@@ -181,7 +181,7 @@ afterwards, upon completion."}
       [(async/poll! control-chan) control-chan])))
 
 (defn search-parallel
-  [{:keys [root-problem control-chan parallelism] :as config}]
+  [{:keys [root-problem parallelism] control-chan ::control-chan :as config}]
   (loop [problem root-problem
          worker-pool [(go-work root-problem config)]]
     (let [[p ch]
@@ -219,8 +219,8 @@ afterwards, upon completion."}
 (defn init-async-config [{:keys [compare-priority chan-size search-xf-async] :as config}]
   (-> config
       (assoc :search-alg search-parallel)
-      (assoc :control-chan (async/chan (make-priority-queue-buffer compare-priority chan-size)
-                                       search-xf-async))))
+      (assoc ::control-chan (async/chan (make-priority-queue-buffer compare-priority chan-size)
+                                        search-xf-async))))
 
 ;; Creating TimeoutException ahead of time and only once, since
 ;; creating an exception is expensive and we are not interested
@@ -229,11 +229,11 @@ afterwards, upon completion."}
 ;; main thread.
 (def timeout-exception (new TimeoutException))
 
-(defn init-timeout-config! [{:keys [timeout control-chan] :as config}]
+(defn init-timeout-config! [{timeout :timeout control-chan ::control-chan :as config}]
   (let [timed-out? (volatile! false)
         timeout-xf (map #(if @timed-out? (throw timeout-exception) %))]
     (-> config
-        (assoc :timeout-future
+        (assoc ::timeout-future
                (.schedule ^ScheduledExecutorService @thread-pool/timeout-executor
                           ^Runnable #(do (when control-chan (async/close! control-chan))
                                          (vreset! timed-out? true))
@@ -250,7 +250,9 @@ afterwards, upon completion."}
    :search-xf-async  IDENTITY-XFORM
    :compare-priority larger-priority-is-better
    :timeout          nil
-   :control-chan     nil})
+   ;; internal
+   ::control-chan    nil
+   ::timeout-future  nil})
 
 ;; # API
 
@@ -263,5 +265,5 @@ afterwards, upon completion."}
     (try
       (search-with complete-config)
       (finally
-        (some-> complete-config :timeout-future future-cancel)
-        (some-> complete-config :control-chan async/close!)))))
+        (some-> complete-config ::timeout-future future-cancel)
+        (some-> complete-config ::control-chan async/close!)))))
