@@ -225,12 +225,12 @@ afterwards, upon completion."}
                           TimeUnit/MILLISECONDS))
         (update :search-xf #(comp timeout-xf %)))))
 
-(defn search [{timeout? :timeout :as search-config}]
+(defn search [{timeout :timeout :as search-config}]
   (check-config! search-config)
   (let [{search-with :search-alg :as complete-config}
         (cond-> (init! DEFAULT-CONFIG search-config)
                 (search-in-parallel? search-config) init-async-config
-                timeout? init-timeout-config!)]
+                timeout init-timeout-config!)]
     (try
       (search-with complete-config)
       (finally
