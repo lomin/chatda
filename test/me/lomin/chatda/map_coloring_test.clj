@@ -64,7 +64,7 @@
   (priority [this] (count (remove nil? (vals (:assignment this)))))
   (stop [this children] (when (empty? children) (reduced this)))
   (combine [_ other] other)
-  search/AsyncSearchable
+  search/ParallelSearchable
   (combine-async [this other] (search/combine this other)))
 
 (def csp (map->ParallelMapColoringCsp

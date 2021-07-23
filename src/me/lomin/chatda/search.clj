@@ -19,7 +19,7 @@ afterwards, upon completion."}
   ;; Must return nil, an empty sequence or a sequence with items
   ;;of type `Searchable`.
   (children [self])
-  ;; Must return a number value representing the priority of a problem.
+  ;; Must return a number value representing the priority of a Searchable.
   (priority [self])
   ;; There are two different ways to stop a search:
   ;; 1. `stop` return an object wrapped in `reduced`:
@@ -28,9 +28,15 @@ afterwards, upon completion."}
   ;; This will stop the worker that returned the truthy value, but
   ;; different workers will still continue their search.
   (stop [this children])
+  ;; Whenever a new Searchable is taken from the heap, it will be
+  ;; combined with the previous top prioritized Searchable by calling
+  ;; `(combine previous current)`.
   (combine [this other]))
 
-(defprotocol AsyncSearchable
+(defprotocol ParallelSearchable
+  ;; When a search is done in parallel, multiple workers can return a
+  ;;result. In order to reduce these multiple results into a single
+  ;; result, `combine-async` takes the role of the reducing function.
   (combine-async [this other]))
 
 (deftype PriorityQueueBuffer
@@ -184,10 +190,10 @@ afterwards, upon completion."}
 
 (defn check-config! [{root-problem :root-problem :as config}]
   (when (and (search-in-parallel? config)
-             (not (satisfies? AsyncSearchable root-problem)))
+             (not (satisfies? ParallelSearchable root-problem)))
     (throw (new IllegalArgumentException
                 ^Throwable
-                (ex-info "Problems that do not implement AsyncSearchable
+                (ex-info "Problems that do not implement ParallelSearchable
                   must be searched sequentially"
                          {:parallelism (:parallelism config)
                           :problem     root-problem})))))

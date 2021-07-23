@@ -113,7 +113,7 @@
   (children [this] (a-star/with-children (children this)))
   (stop [this _] (a-star/with-stop (and (= current target) this)))
   (combine [_ other] other)
-  search/AsyncSearchable
+  search/ParallelSearchable
   (combine-async [this other]
     (a-star/with-combine-async this other)))
 

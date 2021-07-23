@@ -27,7 +27,7 @@
     (-> other
         (update :partial-sum + (:partial-sum this))
         (update :max-value max (:max-value this))))
-  search/AsyncSearchable
+  search/ParallelSearchable
   (combine-async [this other] (search/combine this other)))
 
 (defn make-parallel-number-tree-search [branch-factor max-size]
