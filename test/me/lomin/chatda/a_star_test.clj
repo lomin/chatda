@@ -114,8 +114,8 @@
   (stop [this _] (a-star/with-stop (and (= current target) this)))
   (combine [_ other] other)
   search/ParallelSearchable
-  (combine-async [this other]
-    (a-star/with-combine-async this other)))
+  (reduce-combine [this other]
+    (a-star/with-reduce-combine this other)))
 
 (defn city-travel-problem [g from to]
   (a-star/init (map->CityTravelProblem {:graph   g

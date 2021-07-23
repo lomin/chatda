@@ -65,7 +65,7 @@
   (stop [this children] (when (empty? children) (reduced this)))
   (combine [_ other] other)
   search/ParallelSearchable
-  (combine-async [this other] (search/combine this other)))
+  (reduce-combine [this other] (search/combine this other)))
 
 (def csp (map->ParallelMapColoringCsp
            (init [:red :green :blue]

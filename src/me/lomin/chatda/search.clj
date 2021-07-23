@@ -15,9 +15,13 @@ afterwards, upon completion."}
 
 (def ^:dynamic *force-parallel-search?* false)
 
+(def IDENTITY-XFORM (map identity))
+
+;; # Protocols
+
 (defprotocol Searchable
   ;; Must return nil, an empty sequence or a sequence with items
-  ;;of type `Searchable`.
+  ;;of type Searchable.
   (children [self])
   ;; Must return a number value representing the priority of a Searchable.
   (priority [self])
@@ -36,8 +40,21 @@ afterwards, upon completion."}
 (defprotocol ParallelSearchable
   ;; When a search is done in parallel, multiple workers can return a
   ;;result. In order to reduce these multiple results into a single
-  ;; result, `combine-async` takes the role of the reducing function.
-  (combine-async [this other]))
+  ;; result, `reduce-combine` takes the role of the reducing function.
+  ;; No guarantees about `this` and `other` are given except that both
+  ;; are of type ParallelSearchable.
+  (reduce-combine [this other]))
+
+; # Comparators
+
+(def smaller-priority-is-better compare)
+
+(def larger-priority-is-better (fn [a b] (compare b a)))
+
+(defn priority-comparator [compare-priority]
+  (fn [a b] (compare-priority (priority a) (priority b))))
+
+;; # PriorityQueueBuffer
 
 (deftype PriorityQueueBuffer
   [^long n ^PriorityQueue buf]
@@ -49,7 +66,15 @@ afterwards, upon completion."}
   Counted
   (count [_] (.size buf)))
 
+(defn make-priority-queue-buffer [^Comparator compare-priority ^long n]
+  (new PriorityQueueBuffer n
+       (new PriorityQueue (max 1 n)
+            ^Comparator (priority-comparator compare-priority))))
+
+;; # Heap
+
 (declare make-heap)
+
 ;; DO NOT USE Heap OUTSIDE THIS NAMESPACE!
 ;; It does not properly comply to the contract of the implemented
 ;; protocols in favor of performance optimization. This Heap implementation brings
@@ -82,18 +107,6 @@ afterwards, upon completion."}
   IObj
   (withMeta [self _] self))
 
-(def IDENTITY-XFORM (map identity))
-
-(def smaller-priority-is-better compare)
-(def larger-priority-is-better (fn [a b] (compare b a)))
-(defn priority-comparator [compare-priority]
-  (fn [a b] (compare-priority (priority a) (priority b))))
-
-(defn priority-queue [^Comparator compare-priority ^long n]
-  (new PriorityQueueBuffer n
-       (new PriorityQueue (max 1 n)
-            ^Comparator (priority-comparator compare-priority))))
-
 (defn make-heap
   ([^Comparator compare-priority]
    (new Heap
@@ -101,21 +114,7 @@ afterwards, upon completion."}
         (new PriorityQueue
              ^Comparator (priority-comparator compare-priority)))))
 
-(defn recur-sequential [_ first-problem next-heap]
-  [[] `(recur ~first-problem ~next-heap)])
-
-(defn recur-parallel [config first-problem next-heap]
-  (let [chan (gensym)]
-    [`[~chan (:control-chan ~config)]
-     `(let [[second-problem#] (peek ~next-heap)
-            offer# (when second-problem# (async/offer! ~chan second-problem#))]
-        (cond
-          ;; channel full or no problems left, so recur regularly
-          (nil? offer#) (recur ~first-problem ~next-heap)
-          ;; second-problem# was put onto chan, so forget about second-problem#
-          (true? offer#) (recur ~first-problem (pop ~next-heap))
-          ;; channel closed: stop immediately
-          (false? offer#) ~first-problem))]))
+;; # Main search algorithm for both sequential and parallel search.
 
 (defmacro do-search [make-body start-problem config]
   (let [[config-sym search-xf compare-priority next-problem next-heap] (repeatedly 5 gensym)
@@ -137,6 +136,32 @@ afterwards, upon completion."}
                        ~next-heap (pop heap'#)]
                    ~body)
                  problem#))))))))
+
+;; # Sequential Search
+
+(defn recur-sequential [_ first-problem next-heap]
+  [[] `(recur ~first-problem ~next-heap)])
+
+(defn search-sequential [{:keys [root-problem] :as config}]
+  (let [result (do-search recur-sequential root-problem config)]
+    (if (reduced? result)
+      @result
+      result)))
+
+;; # Parallel Search
+
+(defn recur-parallel [config first-problem next-heap]
+  (let [chan (gensym)]
+    [`[~chan (:control-chan ~config)]
+     `(let [[second-problem#] (peek ~next-heap)
+            offer# (when second-problem# (async/offer! ~chan second-problem#))]
+        (cond
+          ;; channel full or no problems left, so recur regularly
+          (nil? offer#) (recur ~first-problem ~next-heap)
+          ;; second-problem# was put onto chan, so forget about second-problem#
+          (true? offer#) (recur ~first-problem (pop ~next-heap))
+          ;; channel closed: stop immediately
+          (false? offer#) ~first-problem))]))
 
 (defn go-work [problem config]
   (async/go
@@ -168,21 +193,10 @@ afterwards, upon completion."}
         (= ch control-chan) (recur problem
                                    (conj worker-pool (go-work p config)))
         ;; => ch must be a go-worker and p is a new problem (or once the root-problem)
-        :else (recur (if (identical? problem p) p (combine-async problem p))
+        :else (recur (if (identical? problem p) p (reduce-combine problem p))
                      (remove-worker-from worker-pool ch))))))
 
-(defn search-sequential [{:keys [root-problem] :as config}]
-  (let [result (do-search recur-sequential root-problem config)]
-    (if (reduced? result)
-      @result
-      result)))
-
-;; Creating TimeoutException ahead of time and only once, since
-;; creating an exception is expensive and we are not interested
-;; in the stacktrace. This significantly reduces the latency
-;; between the moment of the timeout and the unblocking of the
-;; main thread.
-(def timeout-exception (new TimeoutException))
+;; # Configuration
 
 (defn search-in-parallel? [config]
   (or (<= 2 (get config :parallelism 1))
@@ -198,17 +212,6 @@ afterwards, upon completion."}
                          {:parallelism (:parallelism config)
                           :problem     root-problem})))))
 
-(def DEFAULT-CONFIG
-  {:search-alg       search-sequential
-   :root-problem     nil
-   :parallelism      1
-   :chan-size        1
-   :search-xf        IDENTITY-XFORM
-   :search-xf-async  IDENTITY-XFORM
-   :compare-priority larger-priority-is-better
-   :timeout          nil
-   :control-chan     nil})
-
 (defn init! [default-config config]
   @thread-pool/custom-thread-pool-executor
   (merge default-config config))
@@ -216,8 +219,15 @@ afterwards, upon completion."}
 (defn init-async-config [{:keys [compare-priority chan-size search-xf-async] :as config}]
   (-> config
       (assoc :search-alg search-parallel)
-      (assoc :control-chan (async/chan (priority-queue compare-priority chan-size)
+      (assoc :control-chan (async/chan (make-priority-queue-buffer compare-priority chan-size)
                                        search-xf-async))))
+
+;; Creating TimeoutException ahead of time and only once, since
+;; creating an exception is expensive and we are not interested
+;; in the stacktrace. This significantly reduces the latency
+;; between the moment of the timeout and the unblocking of the
+;; main thread.
+(def timeout-exception (new TimeoutException))
 
 (defn init-timeout-config! [{:keys [timeout control-chan] :as config}]
   (let [timed-out? (volatile! false)
@@ -230,6 +240,19 @@ afterwards, upon completion."}
                           ^long timeout
                           TimeUnit/MILLISECONDS))
         (update :search-xf #(comp timeout-xf %)))))
+
+(def DEFAULT-CONFIG
+  {:search-alg       search-sequential
+   :root-problem     nil
+   :parallelism      1
+   :chan-size        1
+   :search-xf        IDENTITY-XFORM
+   :search-xf-async  IDENTITY-XFORM
+   :compare-priority larger-priority-is-better
+   :timeout          nil
+   :control-chan     nil})
+
+;; # API
 
 (defn search [{timeout :timeout :as search-config}]
   (check-config! search-config)

@@ -93,7 +93,7 @@
            (fork-seen-xform)
            ~@body*)))
 
-(defmacro with-combine-async
+(defmacro with-reduce-combine
   "Ensures that:
    1. when only one of `this` and `other` stopped, it will be `other` that stopped
    2. when both `this` and `other` stopped,
@@ -108,7 +108,7 @@
                 (or (not (search/stop ~other (search/children ~other)))
                     (< (get-back+forward-costs ~this)
                        (get-back+forward-costs ~other))))
-         (search/combine-async (vary-meta ~other assoc ::sorted true) ~this)
+         (search/reduce-combine (vary-meta ~other assoc ::sorted true) ~this)
          ~body*))))
 
 (defn init
