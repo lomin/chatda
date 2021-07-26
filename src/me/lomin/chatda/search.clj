@@ -45,10 +45,16 @@ afterwards, upon completion."}
   ;; are of type ParallelSearchableNode.
   (reduce-combine [this other]))
 
-;; # PriorityQueueBuffer
+;; # Comparators
 
 (defn priority-comparator [compare-priority]
   (fn [a b] (compare-priority (priority a) (priority b))))
+
+(def smaller-is-better compare)
+
+(def larger-is-better (fn [a b] (compare b a)))
+
+;; # PriorityQueueBuffer
 
 (deftype PriorityQueueBuffer
   [^long n ^PriorityQueue buf]
@@ -236,10 +242,6 @@ afterwards, upon completion."}
                           TimeUnit/MILLISECONDS))
         (update :search-xf #(comp timeout-xf %)))))
 
-(def smaller-priority-is-better compare)
-
-(def larger-priority-is-better (fn [a b] (compare b a)))
-
 (def DEFAULT-CONFIG
   {:search-alg       search-sequential
    :root-node        nil
@@ -247,7 +249,7 @@ afterwards, upon completion."}
    :chan-size        1
    :search-xf        IDENTITY-XFORM
    :search-xf-async  IDENTITY-XFORM
-   :compare-priority larger-priority-is-better
+   :compare-priority larger-is-better
    :timeout          nil
    ;; internal
    ::control-chan    nil

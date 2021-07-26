@@ -9,7 +9,8 @@
 
 (defprotocol AStar
   (forward-costs [self])
-  (a-star-identity [self]))
+  (a-star-identity [self])
+  (goal? [this]))
 
 (defn calculate-back+forward-costs [p]
   (+ (or (get-costs p) 0) (forward-costs p)))
@@ -43,18 +44,15 @@
        (seen [_#] ~seen)
        ~@body-with-priority)))
 
-(defmacro with-children [& body]
+(defmacro with-stop [this & body]
   (let [best-costs (symbol :a-star:best-costs)
         back+forward-costs (symbol :a-star:back+forward-costs)]
-    `(when (< ~back+forward-costs (deref ~best-costs))
-       (lazy-seq (do ~@body)))))
-
-(defmacro with-stop [& body]
-  (let [best-costs (symbol :a-star:best-costs)
-        back+forward-costs (symbol :a-star:back+forward-costs)]
-    `(when-let [result# (do ~@body)]
-       (swap! ~best-costs min ~back+forward-costs)
-       result#)))
+    `(if (or (<= (deref ~best-costs) ~back+forward-costs)
+             (goal? ~this))
+       ~this
+       (when-let [result# (do ~@body)]
+         (swap! ~best-costs min ~back+forward-costs)
+         result#))))
 
 (defn best-cost-xform []
   (remove #(<= (deref (get-best-costs %)) (get-back+forward-costs %))))
@@ -93,35 +91,36 @@
            (fork-seen-xform)
            ~@body*)))
 
-(defmacro with-reduce-combine
-  "Ensures that:
-   1. when only one of `this` and `other` stopped, it will be `other` that stopped
-   2. when both `this` and `other` stopped,
-      `(< (get-back+forward-costs other) (get-back+forward-costs this))`
-   In this way, `other` can be returned as a default value (which it
-   is, if there is no body at all)."
-  [this other & body]
-  (let [body* (if (seq body) (cons 'do body) other)]
-    `(if (::sorted (meta ~this))
-       ~body*
-       (if (and (search/stop ~this (search/children ~this))
-                (or (not (search/stop ~other (search/children ~other)))
-                    (< (get-back+forward-costs ~this)
-                       (get-back+forward-costs ~other))))
-         (search/reduce-combine (vary-meta ~other assoc ::sorted true) ~this)
-         ~body*))))
+(defn compare-features [feature+compare-xs a b]
+  (reduce (fn [[a b :as comparison] [feature compare*]]
+            (let [result ((or compare* search/smaller-is-better)
+                          (feature a) (feature b))]
+              (cond (= 0 result) comparison
+                    (neg? result) (reduced [a b])
+                    :else (reduced [b a]))))
+          [a b]
+          feature+compare-xs))
+
+(def a-star-better-features
+  [[(comp boolean goal?) search/larger-is-better]
+   [get-back+forward-costs search/smaller-is-better]
+   [(comp depth search/priority) search/larger-is-better]])
+
+(defn choose-better [a b]
+  (first (compare-features a-star-better-features a b)))
 
 (defn init
   ([root-node] (init root-node nil))
   ([root-node custom-config]
    (merge {:root-node        (merge root-node
                                     {:a-star:costs              0
-                                     :a-star:seen               (volatile! {(a-star-identity root-node)
-                                                                            (calculate-back+forward-costs root-node)})
+                                     :a-star:seen               (volatile!
+                                                                  {(a-star-identity root-node)
+                                                                   (calculate-back+forward-costs root-node)})
                                      :a-star:back+forward-costs 0
                                      :a-star:priority           [0 0]
                                      :a-star:best-costs         (atom Integer/MAX_VALUE)})
-           :compare-priority search/smaller-priority-is-better
+           :compare-priority search/smaller-is-better
            :search-xf        (with-xform)
            :search-xf-async  (with-xform-async)}
           custom-config)))

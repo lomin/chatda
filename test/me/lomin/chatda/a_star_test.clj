@@ -6,6 +6,15 @@
             [me.lomin.chatda.search :as search]
             [me.lomin.chatda.a-star :as a-star]))
 
+(deftest compare-features-test
+  (let [a {:a 1 :b 2 :c 5}
+        b {:a 1 :b 3 :c 4}]
+    (are [expected fs a b]
+      (= expected (a-star/compare-features fs a b))
+      [a b] [[:a] [:b]] a b
+      [b a] [[:a] [:b search/larger-is-better]] a b
+      [a b] [[:a] [:b] [:c]] a b)))
+
 (defn make-coordinates [line]
   (let [[_ x y] (string/split line #"\s")]
     [(clojure.edn/read-string x)
@@ -109,13 +118,17 @@
   a-star/AStar
   (forward-costs [_] (manhattan-distance graph current target))
   (a-star-identity [_] current)
+  (goal? [_] (= current target))
   search/SearchableNode
-  (children [this] (a-star/with-children (children this)))
-  (stop [this _] (a-star/with-stop (and (= current target) this)))
+  (children [this] (children this))
+  (stop [this _]
+    (a-star/with-stop
+      this
+      (and (a-star/goal? this) this)))
   (combine [_ other] other)
   search/ParallelSearchableNode
   (reduce-combine [this other]
-    (a-star/with-reduce-combine this other)))
+    (a-star/choose-better this other)))
 
 (defn city-travel-search-config [g from to]
   (a-star/init (map->CityTravelNode {:graph   g
