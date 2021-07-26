@@ -21,7 +21,7 @@
   (get priority 1))
 
 (defn split-at-searchable-protocol [body]
-  (split-with #(not= #'search/Searchable (and (symbol? %) (resolve %))) body))
+  (split-with #(not= #'search/SearchableNode (and (symbol? %) (resolve %))) body))
 
 (defmacro def-a-star [name fields & body]
   (let [costs (symbol :a-star:costs)
@@ -31,7 +31,7 @@
         back+forward-costs (symbol :a-star:back+forward-costs)
         [first-body-part [_ & more]] (split-at-searchable-protocol body)
         body-with-priority (concat first-body-part
-                                   `(search/Searchable
+                                   `(search/SearchableNode
                                       (priority [_#] ~priority)
                                       ~@more))
         fields* (into fields [costs back+forward-costs best-costs priority seen])]
@@ -71,7 +71,7 @@
 (defn back+forward-costs-xform []
   (map #(assoc % :a-star:back+forward-costs (calculate-back+forward-costs %))))
 
-(defn filter-new-or-better-problems-xform []
+(defn filter-new-or-better-nodes-xform []
   (filter #(let [back+forward-costs (get-back+forward-costs %)
                  seen (seen %)
                  a-star-identity (a-star-identity %)]
@@ -82,7 +82,7 @@
   (let [body* (when (seq body) (list (cons 'do body)))]
     `(comp
        (back+forward-costs-xform)
-       (filter-new-or-better-problems-xform)
+       (filter-new-or-better-nodes-xform)
        ~@body*
        (priority-xform)
        (best-cost-xform))))
@@ -112,12 +112,12 @@
          ~body*))))
 
 (defn init
-  ([root-problem] (init root-problem nil))
-  ([root-problem custom-config]
-   (merge {:root-problem     (merge root-problem
+  ([root-node] (init root-node nil))
+  ([root-node custom-config]
+   (merge {:root-node        (merge root-node
                                     {:a-star:costs              0
-                                     :a-star:seen               (volatile! {(a-star-identity root-problem)
-                                                                            (calculate-back+forward-costs root-problem)})
+                                     :a-star:seen               (volatile! {(a-star-identity root-node)
+                                                                            (calculate-back+forward-costs root-node)})
                                      :a-star:back+forward-costs 0
                                      :a-star:priority           [0 0]
                                      :a-star:best-costs         (atom Integer/MAX_VALUE)})

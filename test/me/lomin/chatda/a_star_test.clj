@@ -105,29 +105,29 @@
                (update :path conj (node g to))))
          (outgoing-edges g (:current this)))))
 
-(a-star/def-a-star CityTravelProblem [graph current target]
+(a-star/def-a-star CityTravelNode [graph current target]
   a-star/AStar
   (forward-costs [_] (manhattan-distance graph current target))
   (a-star-identity [_] current)
-  search/Searchable
+  search/SearchableNode
   (children [this] (a-star/with-children (children this)))
   (stop [this _] (a-star/with-stop (and (= current target) this)))
   (combine [_ other] other)
-  search/ParallelSearchable
+  search/ParallelSearchableNode
   (reduce-combine [this other]
     (a-star/with-reduce-combine this other)))
 
-(defn city-travel-problem [g from to]
-  (a-star/init (map->CityTravelProblem {:graph   g
-                                        :current (node g from)
-                                        :target  (node g to)
-                                        :path    [from]})))
+(defn city-travel-search-config [g from to]
+  (a-star/init (map->CityTravelNode {:graph   g
+                                     :current (node g from)
+                                     :target  (node g to)
+                                     :path    [from]})))
 
 (defn shortest-travel
   ([from to] (shortest-travel from to {}))
   ([from to options]
    (as-> (read-graph "resources/cities.txt") $
-         (city-travel-problem $ (node $ from) (node $ to))
+         (city-travel-search-config $ (node $ from) (node $ to))
          (search/search (merge $ {:timeout 1000} options))
          (:path $))))
 

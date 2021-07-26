@@ -55,16 +55,16 @@
 
 
 (defrecord MapColoringCsp []
-  search/Searchable
+  search/SearchableNode
   (children [this] (next-csps this)))
 
 (defrecord ParallelMapColoringCsp []
-  search/Searchable
+  search/SearchableNode
   (children [this] (next-csps this))
   (priority [this] (count (remove nil? (vals (:assignment this)))))
   (stop [this children] (when (empty? children) (reduced this)))
   (combine [_ other] other)
-  search/ParallelSearchable
+  search/ParallelSearchableNode
   (reduce-combine [this other] (search/combine this other)))
 
 (def csp (map->ParallelMapColoringCsp
@@ -93,10 +93,10 @@
              (complete-consistent?)))))
 
 (defn search [p chan-size parallelism]
-  (search/search {:root-problem p
-                  :search-xf    (filter consistent?)
-                  :chan-size    chan-size
-                  :parallelism  parallelism}))
+  (search/search {:root-node   p
+                  :search-xf   (filter consistent?)
+                  :chan-size   chan-size
+                  :parallelism parallelism}))
 
 
 (deftest parallel-csp-test

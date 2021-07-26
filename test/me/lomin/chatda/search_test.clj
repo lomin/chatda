@@ -4,6 +4,8 @@
             [me.lomin.chatda.search :as search]
             [me.lomin.chatda.number-tree-test :as ntt]))
 
+
+
 (deftest min-heap-test
   (is (= [:c [4 1]]
          (peek (pm/priority-map-by search/larger-priority-is-better
@@ -16,7 +18,7 @@
 
 (defn search-with-timeout [{:keys [timeout] :as options}]
   (let [start-time (. System (currentTimeMillis))
-        result (-> (ntt/make-parallel-number-tree-search 20 5E300)
+        result (-> (ntt/make-parallel-number-tree-search-config 20 5E300)
                    (merge options)
                    search/search
                    :value)

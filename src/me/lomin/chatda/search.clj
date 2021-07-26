@@ -19,11 +19,11 @@ afterwards, upon completion."}
 
 ;; # Protocols
 
-(defprotocol Searchable
+(defprotocol SearchableNode
   ;; Must return nil, an empty sequence or a sequence with items
-  ;;of type Searchable.
+  ;;of type SearchableNode.
   (children [self])
-  ;; Must return a number value representing the priority of a Searchable.
+  ;; Must return a number value representing the priority of a SearchableNode.
   (priority [self])
   ;; There are two different ways to stop a search:
   ;; 1. `stop` return an object wrapped in `reduced`:
@@ -32,29 +32,23 @@ afterwards, upon completion."}
   ;; This will stop the worker that returned the truthy value, but
   ;; different workers will still continue their search.
   (stop [this children])
-  ;; Whenever a new Searchable is taken from the heap, it will be
-  ;; combined with the previous top prioritized Searchable by calling
+  ;; Whenever a new SearchableNode is taken from the heap, it will be
+  ;; combined with the previous top prioritized SearchableNode by calling
   ;; `(combine previous current)`.
   (combine [this other]))
 
-(defprotocol ParallelSearchable
+(defprotocol ParallelSearchableNode
   ;; When a search is done in parallel, multiple workers can return a
   ;;result. In order to reduce these multiple results into a single
   ;; result, `reduce-combine` takes the role of the reducing function.
   ;; No guarantees about `this` and `other` are given except that both
-  ;; are of type ParallelSearchable.
+  ;; are of type ParallelSearchableNode.
   (reduce-combine [this other]))
 
-; # Comparators
-
-(def smaller-priority-is-better compare)
-
-(def larger-priority-is-better (fn [a b] (compare b a)))
+;; # PriorityQueueBuffer
 
 (defn priority-comparator [compare-priority]
   (fn [a b] (compare-priority (priority a) (priority b))))
-
-;; # PriorityQueueBuffer
 
 (deftype PriorityQueueBuffer
   [^long n ^PriorityQueue buf]
@@ -116,63 +110,63 @@ afterwards, upon completion."}
 
 ;; # Main search algorithm for both sequential and parallel search.
 
-(defmacro do-search [make-body start-problem config]
-  (let [[config-sym search-xf compare-priority next-problem next-heap] (repeatedly 5 gensym)
-        [more-bindings body] ((resolve make-body) config-sym next-problem next-heap)
+(defmacro do-search [make-body start-node config]
+  (let [[config-sym search-xf compare-priority next-node next-heap] (repeatedly 5 gensym)
+        [more-bindings body] ((resolve make-body) config-sym next-node next-heap)
         bindings (into [{search-xf :search-xf compare-priority :compare-priority
                          :as       config-sym} config]
                        more-bindings)]
     `(let ~bindings
-       (loop [problem# ~start-problem
+       (loop [node# ~start-node
               heap# (make-heap ~compare-priority)]
-         (let [children# (children problem#)]
-           (if-let [result# (stop problem# children#)]
+         (let [children# (children node#)]
+           (if-let [result# (stop node# children#)]
              result#
              (let [heap'# (try (into heap# ~search-xf children#)
                                (catch TimeoutException _#))
-                   head-problem+priority# (peek heap'#)]
-               (if head-problem+priority#
-                 (let [~next-problem (combine problem# (first head-problem+priority#))
+                   head-node+priority# (peek heap'#)]
+               (if head-node+priority#
+                 (let [~next-node (combine node# (first head-node+priority#))
                        ~next-heap (pop heap'#)]
                    ~body)
-                 problem#))))))))
+                 node#))))))))
 
 ;; # Sequential Search
 
-(defn recur-sequential [_ first-problem next-heap]
-  [[] `(recur ~first-problem ~next-heap)])
+(defn recur-sequential [_ first-node next-heap]
+  [[] `(recur ~first-node ~next-heap)])
 
-(defn search-sequential [{:keys [root-problem] :as config}]
-  (let [result (do-search recur-sequential root-problem config)]
+(defn search-sequential [{:keys [root-node] :as config}]
+  (let [result (do-search recur-sequential root-node config)]
     (if (reduced? result)
       @result
       result)))
 
 ;; # Parallel Search
 
-(defn recur-parallel [config first-problem next-heap]
+(defn recur-parallel [config first-node next-heap]
   (let [chan (gensym)]
     [`[~chan (::control-chan ~config)]
-     `(let [[second-problem#] (peek ~next-heap)
-            offer# (when second-problem# (async/offer! ~chan second-problem#))]
+     `(let [[second-node#] (peek ~next-heap)
+            offer# (when second-node# (async/offer! ~chan second-node#))]
         (cond
-          ;; channel full or no problems left, so recur regularly
-          (nil? offer#) (recur ~first-problem ~next-heap)
-          ;; second-problem# was put onto chan, so forget about second-problem#
-          (true? offer#) (recur ~first-problem (pop ~next-heap))
+          ;; channel full or no nodes left, so recur regularly
+          (nil? offer#) (recur ~first-node ~next-heap)
+          ;; second-node# was put onto chan, so forget about second-node#
+          (true? offer#) (recur ~first-node (pop ~next-heap))
           ;; channel closed: stop immediately
-          (false? offer#) ~first-problem))]))
+          (false? offer#) ~first-node))]))
 
-(defn go-work [problem config]
+(defn go-work [node config]
   (async/go
     (try
-      (do-search recur-parallel problem config)
+      (do-search recur-parallel node config)
       (catch Exception e e))))
 
 (defn remove-worker-from [worker-pool worker]
   (filterv #(not= % worker) worker-pool))
 
-(defn take-problem+chan-from
+(defn take-node+chan-from
   [worker-pool control-chan parallelism]
   (if (<= parallelism (count worker-pool))
     (async/alts!! worker-pool)
@@ -181,19 +175,21 @@ afterwards, upon completion."}
       [(async/poll! control-chan) control-chan])))
 
 (defn search-parallel
-  [{:keys [root-problem parallelism] control-chan ::control-chan :as config}]
-  (loop [problem root-problem
-         worker-pool [(go-work root-problem config)]]
-    (let [[p ch]
-          (take-problem+chan-from worker-pool control-chan parallelism)]
+  [{:keys [root-node parallelism] control-chan ::control-chan :as config}]
+  (loop [current-best-node root-node
+         worker-pool [(go-work root-node config)]]
+    (let [[node ch]
+          (take-node+chan-from worker-pool control-chan parallelism)]
       (cond
-        (nil? p) problem
-        (reduced? p) @p
-        (instance? Throwable p) (throw p)
-        (= ch control-chan) (recur problem
-                                   (conj worker-pool (go-work p config)))
-        ;; => ch must be a go-worker and p is a new problem (or once the root-problem)
-        :else (recur (if (identical? problem p) p (reduce-combine problem p))
+        (nil? node) current-best-node
+        (reduced? node) @node
+        (instance? Throwable node) (throw node)
+        (= ch control-chan) (recur current-best-node
+                                   (conj worker-pool (go-work node config)))
+        ;; => ch must be a go-worker and node is a new node (or once the root-node)
+        :else (recur (if (identical? node current-best-node)
+                       node
+                       (reduce-combine current-best-node node))
                      (remove-worker-from worker-pool ch))))))
 
 ;; # Configuration
@@ -202,15 +198,14 @@ afterwards, upon completion."}
   (or (<= 2 (get config :parallelism 1))
       *force-parallel-search?*))
 
-(defn check-config! [{root-problem :root-problem :as config}]
+(defn check-config! [{root-node :root-node :as config}]
   (when (and (search-in-parallel? config)
-             (not (satisfies? ParallelSearchable root-problem)))
+             (not (satisfies? ParallelSearchableNode root-node)))
     (throw (new IllegalArgumentException
                 ^Throwable
-                (ex-info "Problems that do not implement ParallelSearchable
-                  must be searched sequentially"
+                (ex-info "Only ParallelSearchableNodeNodes can be searched sequentially"
                          {:parallelism (:parallelism config)
-                          :problem     root-problem})))))
+                          :node        root-node})))))
 
 (defn init! [default-config config]
   @thread-pool/custom-thread-pool-executor
@@ -241,9 +236,13 @@ afterwards, upon completion."}
                           TimeUnit/MILLISECONDS))
         (update :search-xf #(comp timeout-xf %)))))
 
+(def smaller-priority-is-better compare)
+
+(def larger-priority-is-better (fn [a b] (compare b a)))
+
 (def DEFAULT-CONFIG
   {:search-alg       search-sequential
-   :root-problem     nil
+   :root-node        nil
    :parallelism      1
    :chan-size        1
    :search-xf        IDENTITY-XFORM
