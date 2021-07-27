@@ -47,8 +47,7 @@
 (defmacro with-stop [this & body]
   (let [best-costs (symbol :a-star:best-costs)
         back+forward-costs (symbol :a-star:back+forward-costs)]
-    `(if (or (<= (deref ~best-costs) ~back+forward-costs)
-             (goal? ~this))
+    `(if (<= (deref ~best-costs) ~back+forward-costs)
        ~this
        (when-let [result# (do ~@body)]
          (swap! ~best-costs min ~back+forward-costs)
