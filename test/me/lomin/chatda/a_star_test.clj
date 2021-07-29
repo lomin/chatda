@@ -125,7 +125,7 @@
     (a-star/with-stop
       this
       (and (a-star/goal? this) this)))
-  (combine [_ other] other)
+  (combine [this _] this)
   search/ParallelSearchableNode
   (reduce-combine [this other]
     (a-star/choose-better this other)))

@@ -34,8 +34,8 @@ afterwards, upon completion."}
   (stop [this children])
   ;; Whenever a new SearchableNode is taken from the heap, it will be
   ;; combined with the previous top prioritized SearchableNode by calling
-  ;; `(combine previous current)`.
-  (combine [this other]))
+  ;; `(combine current previous)`.
+  (combine [this previous]))
 
 (defprotocol ParallelSearchableNode
   ;; When a search is done in parallel, multiple workers can return a
@@ -132,7 +132,7 @@ afterwards, upon completion."}
                                (catch TimeoutException _#))
                    head-node+priority# (peek heap'#)]
                (if head-node+priority#
-                 (let [~next-node (combine node# (first head-node+priority#))
+                 (let [~next-node (combine (first head-node+priority#) node#)
                        ~next-heap (pop heap'#)]
                    ~body)
                  node#))))))))
@@ -195,7 +195,7 @@ afterwards, upon completion."}
         ;; => ch must be a go-worker and node is a new node (or once the root-node)
         :else (recur (if (identical? node current-best-node)
                        node
-                       (reduce-combine current-best-node node))
+                       (reduce-combine node current-best-node))
                      (remove-worker-from worker-pool ch))))))
 
 ;; # Configuration

@@ -63,7 +63,7 @@
   (children [this] (next-csps this))
   (priority [this] (count (remove nil? (vals (:assignment this)))))
   (stop [this children] (when (empty? children) (reduced this)))
-  (combine [_ other] other)
+  (combine [this _] this)
   search/ParallelSearchableNode
   (reduce-combine [this other] (search/combine this other)))
 

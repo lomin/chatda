@@ -24,9 +24,9 @@
   (priority [_] value)
   (stop [_ _])
   (combine [this other]
-    (-> other
-        (update :partial-sum + (:partial-sum this))
-        (update :max-value max (:max-value this))))
+    (-> this
+        (update :partial-sum + (:partial-sum other))
+        (update :max-value max (:max-value other))))
   search/ParallelSearchableNode
   (reduce-combine [this other] (search/combine this other)))
 
