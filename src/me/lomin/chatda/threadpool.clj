@@ -1,13 +1,14 @@
 (ns me.lomin.chatda.threadpool
   (:require [clojure.core.async.impl.concurrent :as conc]
-            [clojure.core.async.impl.protocols :as async-protocols])
+            [clojure.core.async.impl.protocols :as async-protocols]
+            [clojure.core.async.impl.dispatch :as async-dispatch])
   (:import (java.util.concurrent Executors)
            (clojure.core.async.impl.protocols Executor)))
 
 (defn make-switching-executor [delayed-core-async-executor]
   (delay (let [core-async-executor @delayed-core-async-executor
                opts {:init-fn
-                     #(.set ^ThreadLocal @#'clojure.core.async.impl.dispatch/in-dispatch true)}
+                     #(.set ^ThreadLocal @#'async-dispatch/in-dispatch true)}
                cpu-bound-executor (Executors/newFixedThreadPool
                                     (.availableProcessors (Runtime/getRuntime))
                                     (conc/counted-thread-factory "me.lomin.chatda.search/async-worker-%d"
