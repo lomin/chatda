@@ -209,7 +209,7 @@ afterwards, upon completion."}
              (not (satisfies? ParallelSearchableNode root-node)))
     (throw (new IllegalArgumentException
                 ^Throwable
-                (ex-info "Only ParallelSearchableNodeNodes can be searched in parallel"
+                (ex-info "Only a ParallelSearchableNode can be searched in parallel"
                          {:parallelism (:parallelism config)
                           :node        root-node})))))
 
