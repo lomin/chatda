@@ -57,13 +57,13 @@
 (defn find-mrv [vars]
   (first
     (reduce-kv
-      (fn [[_ lowest-vars :as low] row vars*]
+      (fn [[_ lowest-vars-count :as lowest-row+vars-count] row vars*]
         (let [vars-count (count vars*)]
           (cond
             (= vars-count 1) (reduced [row vars-count])
             (< vars-count
-               (or lowest-vars Integer/MAX_VALUE)) [row vars-count]
-            :else low)))
+               (or lowest-vars-count Integer/MAX_VALUE)) [row vars-count]
+            :else lowest-row+vars-count)))
       nil
       vars)))
 
