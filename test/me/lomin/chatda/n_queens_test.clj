@@ -45,15 +45,6 @@
              (vec (repeat (count board) nil))
              board))
 
-(defn consistent?
-  ([node]
-   (let [board (:board node)
-         current (:current node)]
-     (consistent? board [current (board current)])))
-  ([board [row :as latest-queen-coordinates]]
-   (not-any? (partial queens-in-check? latest-queen-coordinates)
-             (seq (dissoc board row)))))
-
 (defn find-mrv [vars]
   (first
     (reduce-kv
@@ -115,9 +106,7 @@
                                       :board     {}
                                       :current   0
                                       :solutions #{}
-                                      :vars      (make-vars n)})
-   :search-xf (filter consistent?)})
-
+                                      :vars      (make-vars n)})})
 
 (defn search-n-queens
   ([n]
@@ -127,18 +116,6 @@
   ([n parallelism chan-size]
    (search-n-queens n {:parallelism parallelism
                        :chan-size   chan-size})))
-
-
-(deftest consistent?-test
-  (are [expected board latest-queen-coordinates]
-    (= expected (consistent? board latest-queen-coordinates))
-    true {} [1 1]
-    true {1 1} [2 3]
-    true {1 3} [2 1]
-    true {1 1} [1 1]
-    false {1 1} [2 1]
-    false {1 1} [2 2]
-    false {3 3} [1 1]))
 
 (deftest find-mrv-test
   (are [expected vars]
