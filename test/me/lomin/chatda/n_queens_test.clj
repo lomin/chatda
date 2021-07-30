@@ -85,8 +85,8 @@
                                (update :board assoc mrv %)
                                (update :vars (fn [vars*] (cut-vars vars* [mrv %]))))
                           (vars mrv))))
-  (priority [this] (count board))
-  (stop [this children])
+  (priority [_] (count board))
+  (stop [_ _])
   (combine [this other]
     (cond-> this
             (seq (:solutions other)) (assoc :solutions (:solutions other))
@@ -98,8 +98,9 @@
             (solution? n other-board) (update :solutions conj (format-board other-board)))))
 
 (defn make-vars [n]
-  (into {} (for [i (range 1 (inc n))]
-             [i (set (range 1 (inc n)))])))
+  (into {}
+        (for [i (range 1 (inc n))]
+          [i (set (range 1 (inc n)))])))
 
 (defn all-n-queens-search [n]
   {:root-node (map->AllNQueensSearch {:n         n
