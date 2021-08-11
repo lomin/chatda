@@ -98,9 +98,8 @@
             (solution? n other-board) (update :solutions conj (format-board other-board)))))
 
 (defn make-vars [n]
-  (into {}
-        (for [i (range 1 (inc n))]
-          [i (set (range 1 (inc n)))])))
+  (let [one-to-n (range 1 (inc n))]
+    (zipmap one-to-n (repeat (set one-to-n)))))
 
 (defn all-n-queens-search [n]
   {:root-node (map->AllNQueensSearch {:n         n
