@@ -219,7 +219,7 @@ afterwards, upon completion."}
 
 (defn init-async-config [{:keys [compare-priority chan-size search-xf-async] :as config}]
   (-> config
-      (assoc :search-alg search-parallel)
+      (assoc ::search-alg search-parallel)
       (assoc ::control-chan (async/chan (make-priority-queue-buffer compare-priority chan-size)
                                         search-xf-async))))
 
@@ -243,8 +243,7 @@ afterwards, upon completion."}
         (update :search-xf #(comp timeout-xf %)))))
 
 (def DEFAULT-CONFIG
-  {:search-alg       search-sequential
-   :root-node        nil
+  {:root-node        nil
    :parallelism      1
    :chan-size        1
    :search-xf        IDENTITY-XFORM
@@ -252,6 +251,7 @@ afterwards, upon completion."}
    :compare-priority larger-is-better
    :timeout          nil
    ;; internal
+   ::search-alg      search-sequential
    ::control-chan    nil
    ::timeout-future  nil})
 
@@ -259,7 +259,7 @@ afterwards, upon completion."}
 
 (defn search [{timeout :timeout :as search-config}]
   (check-config! search-config)
-  (let [{search-with :search-alg :as complete-config}
+  (let [{search-with ::search-alg :as complete-config}
         (cond-> (init! DEFAULT-CONFIG search-config)
                 (search-in-parallel? search-config) init-async-config
                 timeout init-timeout-config!)]
