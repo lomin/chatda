@@ -86,7 +86,7 @@
                                (update :vars (fn [vars*] (cut-vars vars* [mrv %]))))
                           (vars mrv))))
   (priority [_] (count board))
-  (stop [_ _])
+  (stop [_ _] (comment search for all solutions))
   (combine [this other]
     (cond-> this
             (seq (:solutions other)) (assoc :solutions (:solutions other))
@@ -98,8 +98,8 @@
             (solution? n other-board) (update :solutions conj (format-board other-board)))))
 
 (defn make-vars [n]
-  (let [one-to-n (range 1 (inc n))]
-    (zipmap one-to-n (repeat (set one-to-n)))))
+  (let [one-until-n+1 (range 1 (inc n))]
+    (zipmap one-until-n+1 (repeat (set one-until-n+1)))))
 
 (defn all-n-queens-search [n]
   {:root-node (map->AllNQueensSearch {:n         n
