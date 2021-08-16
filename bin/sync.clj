@@ -13,7 +13,7 @@
 (defn rsync [src dest target user]
   (-> ["rsync" "-azP" "--copy-links" "--delete"]
       (into (interleave (repeat "--exclude") exclusions))
-      (into [src (str user "@" dest ":/home/" user target)])))
+      (into [src (str user "@" dest ":" target)])))
 
 (defn sh-run!
   ([args] (sh-run! args (partial apply println)))
@@ -23,15 +23,10 @@
                   [(:out result) (:err result)]))
      result)))
 
-(defn parse-deps-edn []
-  (let [{:keys [out exit]} (sh-run! ["cat" "deps.edn"] identity)]
+(defn parse-dogu-edn []
+  (let [{:keys [out exit]} (sh-run! ["cat" "dogu.edn"] identity)]
     (when (zero? exit)
       (:sync (edn/read-string out)))))
-
-(defn parse-project-clj []
-  (let [{:keys [out exit]} (sh-run! ["cat" "project.clj"] identity)]
-    (when (zero? exit)
-      (second (drop-while #(not= :sync %) (edn/read-string out))))))
 
 (defn watch! [[src dest target user]]
   (do
@@ -68,8 +63,7 @@
       (= flag "watching") (rsync! args)
       :else (invalid-flag! flag))
     (if-let [{:keys [src dest target user]}
-             (or (parse-deps-edn)
-                 (parse-project-clj))]
+             (parse-dogu-edn)]
       (let [args [src dest target user "init"]]
         (if (every? some? args)
           (recur args)
