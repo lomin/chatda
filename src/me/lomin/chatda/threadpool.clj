@@ -1,4 +1,8 @@
 (ns me.lomin.chatda.threadpool
+  ^{:doc "Different thread-pools for:
+           1: search work -> cpu-bound thread-pool with size = available processors
+           2: timeouts    -> single-thread thread-pool
+           3: concurrency -> core.async thread-pool"}
   (:require [clojure.core.async.impl.concurrent :as conc]
             [clojure.core.async.impl.protocols :as async-protocols]
             [clojure.core.async.impl.dispatch :as async-dispatch])
