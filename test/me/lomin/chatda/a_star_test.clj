@@ -3,6 +3,7 @@
   https://algorithms.discrete.ma.tum.de/graph-algorithms/spp-a-star/index_en.html"}
   (:require [clojure.test :refer :all]
             [clojure.string :as string]
+            [clojure.edn :as edn]
             [me.lomin.chatda.search :as search]
             [me.lomin.chatda.a-star :as a-star]))
 
@@ -17,18 +18,18 @@
 
 (defn make-coordinates [line]
   (let [[_ x y] (string/split line #"\s")]
-    [(clojure.edn/read-string x)
-     (clojure.edn/read-string y)]))
+    [(edn/read-string x)
+     (edn/read-string y)]))
 
 (defn make-edge [m line]
   (let [[_ from to distance] (string/split line #"\s")]
-    [[(get m (clojure.edn/read-string from))
-      (get m (clojure.edn/read-string to))]
-     (clojure.edn/read-string distance)]))
+    [[(get m (edn/read-string from))
+      (get m (edn/read-string to))]
+     (edn/read-string distance)]))
 
 (defn insert-name [m line]
   (let [[_ index-str letter name] (string/split line #"\s")
-        index (clojure.edn/read-string index-str)]
+        index (edn/read-string index-str)]
     (-> m
         (assoc (keyword letter) index)
         (assoc (keyword name) index)
