@@ -8,15 +8,22 @@
                    :extra-deps  {org.clojure/test.check                   {:mvn/version "1.0.0"}
                                  lambdaisland/kaocha                      {:mvn/version "1.0.732"}
                                  criterium/criterium                      {:mvn/version "0.4.6"}
-                                 com.clojure-goes-fast/clj-async-profiler {:mvn/version "0.4.1"}}}
-           :nREPL {:extra-deps
-                   {nrepl/nrepl         {:mvn/version "0.7.0"}
-                    criterium/criterium {:mvn/version "0.4.6"}
-                    com.clojure-goes-fast/clj-async-profiler {:mvn/version "0.4.1"}}}
+                                 com.clojure-goes-fast/clj-async-profiler {:mvn/version "0.4.1"}
+                                 org.clojure/tools.namespace              {:mvn/version "1.1.0"}
+                                 nubank/matcher-combinators               {:mvn/version "3.3.1"}
+                                 cc.artifice/vijual                       {:mvn/version "0.2.5"}
+                                 uncomplicate/neanderthal                 {:mvn/version "0.43.0"
+                                                                           :exclusions  [org.jcuda/jcuda-natives
+                                                                                         org.jcuda/jcublas-natives]}}}
+           :nREPL {:extra-paths ["test" "resources" "repl"]
+                   :extra-deps  {nrepl/nrepl              {:mvn/version "0.7.0"}
+                                 uncomplicate/neanderthal {:mvn/version "0.43.0"}}
+                   :jvm-opts    ["-Djdk.attach.allowAttachSelf"
+                                 "-XX:+UnlockDiagnosticVMOptions"
+                                 "-XX:+DebugNonSafepoints"
+                                 "-XX:-OmitStackTraceInFastThrow"
+                                 "-Dclojure.core.async.go-checking=true"
+                                 "--add-opens=java.base/jdk.internal.ref=ALL-UNNAMED"]}
            :release
                   {:extra-deps {applied-science/deps-library {:mvn/version "0.4.0"}}
-                   :main-opts  ["-m" "applied-science.deps-library"]}}
- :sync    {:user   "user"
-           :src    "."
-           :dest   "localhost"
-           :target ""}}
+                   :main-opts  ["-m" "applied-science.deps-library"]}}}
