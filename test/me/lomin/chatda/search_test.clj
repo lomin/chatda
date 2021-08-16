@@ -27,8 +27,6 @@
         accepted-duration (* timeout 2)]
     [result duration accepted-duration]))
 
-;; If the timeout timeout does not take effect, this test takes about
-;; 1 second on my tiny machine.
 (deftest timeout-test
   (let [[_ duration accepted-duration]
         (search-with-timeout {:parallelism 100
