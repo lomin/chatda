@@ -56,6 +56,12 @@
 (defn coordinates [g $node]
   (get-in g [:coordinates (index g $node)]))
 
+(defn get-city-name [g n]
+  (ffirst (filter #(let [[city index] %]
+                     (and (= index (g n))
+                          (not= city (node g n))))
+                  g)))
+
 (defn edges [g $node f]
   (filter (comp (partial = (node g $node))
                 f
@@ -131,11 +137,15 @@
   (reduce-combine [this other]
     (a-star/choose-better this other)))
 
-(defn city-travel-search-config [g from to]
-  (a-star/init (map->CityTravelNode {:graph   g
-                                     :current (node g from)
-                                     :target  (node g to)
-                                     :path    [from]})))
+(defn city-travel-search-config
+  ([from to]
+   (as-> (read-graph "resources/cities.txt") $
+         (city-travel-search-config $ (node $ from) (node $ to))))
+  ([g from-node to-node]
+   (a-star/init (map->CityTravelNode {:graph   g
+                                      :current from-node
+                                      :target  to-node
+                                      :path    [from-node]}))))
 
 (defn shortest-travel
   ([from to] (shortest-travel from to {}))

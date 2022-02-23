@@ -14,7 +14,7 @@
                     view  identity
                     xf    (map identity)}
              :as   opts}]
-  (when (pos? depth)
+  (when (pos? (inc depth))
     (into [(view n)]
           (filter some?)
           (mapv #(tree % (update opts :depth (fnil dec depth)))
@@ -24,26 +24,50 @@
   ([node] (v/draw-tree [(tree node {})]))
   ([node opts] (v/draw-tree [(tree node opts)])))
 
-(comment
+(def _0_partial-sum
+  (comment
 
-  (draw (:root-node (n-queens/all-n-queens-search 5))
-        {:view  :board
-         :depth 4})
+    ;; draw search tree
+    (let [{:keys [root-node search-xf]}
+          (ntt/make-parallel-number-tree-search-config 3 50)]
+      (draw root-node {:view :value :xf search-xf :depth 3}))
 
-  (let [{:keys [root-node search-xf]}
-        (ntt/make-parallel-number-tree-search-config 10 50)]
-    (draw root-node {:view  :value :xf search-xf :depth 3}))
+    ;; bench sequential
+    (c/quick-bench (ntt/search-number-tree-parallel :partial-sum 200000 1 1 3))
 
-  (prof/profile {:return-file true}
-                (time (ntt/search-number-tree-parallel :value 200000 2 1 10)))
+    ;; bench parallel
+    (c/quick-bench (ntt/search-number-tree-parallel :partial-sum 200000 2 1 3))
 
-  ;; sequential
-  (do (require '[me.lomin.chatda.number-tree-test :as ntt])
-      (c/quick-bench (ntt/search-number-tree-parallel :value 200000 1 1 10)))
+    ;; profile
+    (prof/profile {:return-file true}
+                  (time (ntt/search-number-tree-parallel :value 200000 2 1 10)))))
 
-  ;; parallel
-  (do (require '[me.lomin.chatda.number-tree-test :as ntt])
-      (c/quick-bench (ntt/search-number-tree-parallel :value 200000 2 1 10)))
 
-  )
+(def _1_n-queens
+  (comment
+
+    ;; draw search tree
+    (draw (:root-node (n-queens/all-n-queens-search 3))
+          {:view :board :depth 3})
+
+    ;; bench reference
+    (c/quick-bench (n-queens/reference-n-queen 9))
+
+    ;; bench sequential
+    (c/quick-bench (n-queens/search-n-queens 9 1 1))
+
+    ;; bench parallel
+    (c/quick-bench (n-queens/search-n-queens 9 2 1))
+
+    ))
+
+(def _2_cities-of-europe
+  (comment
+
+    (let [{:keys [root-node search-xf]}
+          (a-star-test/city-travel-search-config :Stockholm :Paris)]
+      (draw root-node {:view  #(a-star-test/get-city-name (:graph root-node) (:current %))
+                       :xf search-xf
+                       :depth 2})
+      (a-star-test/shortest-travel :Stockholm :Paris))))
 
